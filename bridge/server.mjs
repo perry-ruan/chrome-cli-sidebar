@@ -669,7 +669,6 @@ function createCliAdapter({
       'stream-json',
       '--effort',
       validEffort,
-      '--disable-slash-commands',
     ];
     if (model && typeof model === 'string' && model.trim()) {
       args.push('--model', model.trim());
@@ -758,7 +757,8 @@ function createCliAdapter({
       '--include-partial-messages',
       '--effort',
       claudeEffort,
-      '--disable-slash-commands',
+      '--permission-mode',
+      'bypassPermissions',
     ];
     if (model && typeof model === 'string' && model.trim()) {
       args.push('--model', model.trim());
@@ -771,9 +771,6 @@ function createCliAdapter({
     }
     if (workspacePath) {
       args.push('--add-dir', workspacePath);
-    }
-    if (screenshotPath || workspacePath) {
-      args.push('--allowedTools', 'Read,Grep,Glob');
     }
 
     const handleLine = (line) => {
