@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <linearGradient id="sparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="55%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="sidebarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#4f46e5" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Outer Rounded Squircle Base (Clean Gray-White Theme) -->
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bgGrad)" stroke="#cbd5e1" stroke-width="12"/>
+
+  <!-- Browser Window Split / Right Sidebar Accent -->
+  <rect x="336" y="64" width="112" height="384" rx="48" fill="url(#sidebarGrad)" stroke="#93c5fd" stroke-width="6"/>
+
+  <!-- Terminal Prompt ">" Chevron on Left -->
+  <path d="M96 196 L162 256 L96 316" fill="none" stroke="#334155" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Main AI Four-Point Star (Sparkle) -->
+  <path d="M256 108 C268 188 292 212 372 224 C292 236 268 260 256 340 C244 260 220 236 140 224 C220 212 244 188 256 108 Z"
+        fill="url(#sparkleGrad)" filter="url(#shadow)"/>
+
+  <!-- Small Secondary Sparkle -->
+  <path d="M388 118 C393 148 402 157 432 162 C402 167 393 176 388 206 C383 176 374 167 344 162 C374 157 383 148 388 118 Z"
+        fill="#2563eb"/>
+
+  <!-- Bottom CLI Cursor Pill -->
+  <rect x="180" y="376" width="108" height="30" rx="15" fill="#2563eb"/>
+</svg>

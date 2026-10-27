@@ -1,0 +1,12 @@
+# Local runtime session history & screenshots (never commit or share)
+.sessions/
+.tmp-screenshots/
+logs/
+
+# macOS & Editor files
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.zip
+*.tar.gz

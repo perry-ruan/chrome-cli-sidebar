@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI CLI Sidebar</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <!-- 顶部紧凑导航栏：左侧状态绿点 + 引擎下拉菜单，右侧历史与新对话 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span id="bridgeStatus" class="status-dot offline" title="本地 Bridge 连接状态"></span>
+        <!-- 保留隐藏元素兼容旧引用 -->
+        <span id="brandLogo" class="hidden">✦</span>
+        <span id="brandName" class="hidden">AGY 侧边栏</span>
+        <div id="engineSegments" class="hidden"></div>
+        <select id="engineSelect" class="engine-select" title="切换底层 AI CLI 引擎">
+          <option value="agy">✦ AGY</option>
+          <option value="claude">✴ Claude Code</option>
+          <option value="gemini">♊ Gemini CLI</option>
+        </select>
+      </div>
+      <div class="topbar-actions">
+        <button id="historyBtn" class="icon-btn" title="查看和切换历史会话">🕘 历史</button>
+        <button id="newChatBtn" class="icon-btn" title="开启新对话">＋ 新对话</button>
+      </div>
+    </header>
+
+    <!-- 历史会话抽屉 -->
+    <div id="sessionDrawer" class="session-drawer hidden">
+      <div class="session-drawer-header">
+        <span class="session-drawer-title">🕘 历史会话列表（点击切换并继续追问）</span>
+        <button id="closeSessionDrawerBtn" class="picker-close-btn" title="关闭">✕</button>
+      </div>
+      <div id="sessionList" class="session-list"></div>
+    </div>
+
+    <!-- 单行紧凑配置栏：模型 + 思考强度 + 本地代码库同处一行 -->
+    <section class="model-bar">
+      <div class="model-select-wrap">
+        <select id="modelSelect" class="model-select" title="切换 AI 模型 (--model)">
+          <option value="gemini-3.8-flash-low">Gemini 3.8 Flash (Low)</option>
+          <option value="">默认模型</option>
+        </select>
+      </div>
+      <select id="effortSelect" class="effort-select" title="思考强度 (--effort)">
+        <option value="low" selected>⚡ low</option>
+        <option value="medium">🧠 med</option>
+        <option value="high">🔬 high</option>
+        <option value="xhigh">🔥 xhigh</option>
+        <option value="max">🚀 max</option>
+      </select>
+      <select id="workspaceSelect" class="workspace-select" title="关联本机代码仓库（看 PR/报错时可直接检索本地源码）">
+        <option value="">📂 不关联代码库</option>
+      </select>
+      <button id="refreshModelsBtn" class="mini-btn" title="重新检测本地引擎与模型列表">↻</button>
+    </section>
+
+    <!-- 隐藏原冗余的顶部大卡片，保留 DOM ID 供 JS 状态同步 -->
+    <div class="hidden" aria-hidden="true">
+      <div id="tabTitle"></div>
+      <div id="tabUrl"></div>
+      <button id="refreshTabBtn" type="button"></button>
+      <input type="checkbox" id="includeContextCheckbox" checked />
+    </div>
+
+    <!-- 主聊天区（占比 80%+） -->
+    <main id="chatContainer" class="chat-container">
+      <div id="emptyState" class="empty-state">
+        <div id="emptyIcon" class="empty-icon">✦</div>
+        <h3 id="emptyTitle">本地 AI CLI 侧边栏</h3>
+        <p>直连本机 CLI（AGY / Claude / Gemini），读取网页或本地代码库，极速响应。</p>
+        <ul class="tips-list">
+          <li><strong>快捷操作菜单</strong>：点击下方 <strong>⚡ 快捷操作 ▾</strong> 一键总结、翻译、框选截屏或调用指令</li>
+          <li><strong>划词翻译/解释</strong>：在网页选中文本后，右键选择 <strong>用 AI CLI 翻译/解释选中内容</strong></li>
+          <li><strong>贴图提问</strong>：在输入框直接按 <strong>Cmd+V</strong> 粘贴剪贴板图片提问</li>
+        </ul>
+      </div>
+    </main>
+
+    <!-- 底部紧凑一体式输入区 -->
+    <footer class="composer">
+      <!-- 标签页选择器浮层 -->
+      <div id="tabPickerPopover" class="tab-picker-popover hidden">
+        <div class="tab-picker-header">
+          <span class="tab-picker-title">选择要引入的 Chrome 标签页</span>
+          <div class="tab-picker-quick-btns">
+            <button id="btnSelectActiveTab" class="picker-mini-btn" title="仅自动跟随当前激活标签页">跟随当前页</button>
+            <button id="btnClearAllTabs" class="picker-mini-btn" title="不引入任何网页上下文">不引入页面</button>
+            <button id="btnClosePicker" class="picker-close-btn" title="关闭">✕</button>
+          </div>
+        </div>
+        <div class="tab-picker-search-wrap">
+          <input
+            type="text"
+            id="tabSearchInput"
+            class="tab-search-input"
+            placeholder="搜索已打开的标签页标题或网址..."
+          />
+        </div>
+        <div id="tabPickerList" class="tab-picker-list"></div>
+      </div>
+
+      <!-- 快捷操作与指令 Menu Dropdown 浮层 -->
+      <div id="quickActionsMenu" class="quick-menu-dropdown hidden">
+        <div class="quick-menu-group-label">页面与视觉操作</div>
+        <button id="btnSummarize" type="button" class="quick-menu-item">
+          <span class="quick-menu-icon">📝</span>
+          <span class="quick-menu-text">总结此页</span>
+          <span class="quick-menu-hint">结构化提炼核心要点</span>
+        </button>
+        <button id="btnTranslate" type="button" class="quick-menu-item">
+          <span class="quick-menu-icon">🌐</span>
+          <span id="translateBtnText" class="quick-menu-text">翻译</span>
+          <span class="quick-menu-hint">全文或划词双语精译</span>
+        </button>
+        <button id="btnAreaScreenshot" type="button" class="quick-menu-item">
+          <span class="quick-menu-icon">✂️</span>
+          <span class="quick-menu-text">框选截屏</span>
+          <span class="quick-menu-hint">拖拽框选局部图片识别</span>
+        </button>
+        <button id="btnScreenshot" type="button" class="quick-menu-item">
+          <span class="quick-menu-icon">📸</span>
+          <span class="quick-menu-text">全屏截屏</span>
+          <span class="quick-menu-hint">截取当前可视窗口识别</span>
+        </button>
+
+        <div class="quick-menu-divider"></div>
+        <div class="quick-menu-group-label">常用快捷指令</div>
+        <button
+          type="button"
+          class="quick-menu-item slash-pill"
+          data-slash="请通俗易懂地解释当前内容的核心概念与背景："
+        >
+          <span class="quick-menu-icon">💡</span>
+          <span class="quick-menu-text">/explain 解释概念</span>
+          <span class="quick-menu-hint">解析术语、代码或报错</span>
+        </button>
+        <button
+          type="button"
+          class="quick-menu-item slash-pill"
+          data-slash="请对当前页面的代码变更或技术方案进行 Code Review，指出潜在 Bug、边界问题与改进建议："
+        >
+          <span class="quick-menu-icon">🔍</span>
+          <span class="quick-menu-text">/cr 审查代码</span>
+          <span class="quick-menu-hint">定位潜在 Bug 与风险</span>
+        </button>
+        <button
+          type="button"
+          class="quick-menu-item slash-pill"
+          data-slash="请结合当前上下文，帮我拟定一段得体、清晰的回复（若为英文场景请提供中英双语）："
+        >
+          <span class="quick-menu-icon">✍️</span>
+          <span class="quick-menu-text">/reply 拟定回复</span>
+          <span class="quick-menu-hint">生成中英得体回复草稿</span>
+        </button>
+        <button
+          type="button"
+          class="quick-menu-item slash-pill"
+          data-slash="请从当前页面或对话中提炼出清晰的 Action Items（待办事项清单）与优先级："
+        >
+          <span class="quick-menu-icon">✅</span>
+          <span class="quick-menu-text">/todo 提炼待办</span>
+          <span class="quick-menu-hint">整理行动项与优先级</span>
+        </button>
+      </div>
+
+      <!-- 剪贴板粘贴图片预览条 -->
+      <div id="pastedImagePreviewBar" class="pasted-image-bar hidden">
+        <img id="pastedImageThumb" class="pasted-image-thumb" alt="已附图预览" />
+        <span class="pasted-image-label">已附带截图（直接输入问题回车发送）</span>
+        <button type="button" id="removePastedImageBtn" class="picker-close-btn" title="移除附图">✕</button>
+      </div>
+
+      <!-- 一体化输入卡片（内嵌快捷操作下拉菜单 + 上下文标签 + 发送栏） -->
+      <div class="composer-box">
+        <div class="context-tabs-bar">
+          <button id="quickMenuBtn" type="button" class="quick-dropdown-trigger" title="打开快捷操作与指令菜单">
+            <span>⚡ 快捷操作</span>
+            <span class="dropdown-caret">▾</span>
+          </button>
+          <button id="openTabPickerBtn" type="button" class="add-tab-btn" title="选择要作为上下文引入的浏览器标签页">
+            <span>🌐 标签页</span>
+            <span id="selectedTabsCountBadge" class="tabs-count-badge">当前页</span>
+            <span class="dropdown-caret">▾</span>
+          </button>
+          <div id="selectedTabChips" class="selected-tab-chips"></div>
+          <span id="selectionBadge" class="selection-badge hidden">已选中文本</span>
+        </div>
+
+        <textarea
+          id="promptInput"
+          rows="2"
+          placeholder="输入问题，或直接 Cmd+V 粘贴图片提问... (Enter 发送)"
+        ></textarea>
+
+        <div class="composer-actions">
+          <span id="convIndicator" class="conv-indicator">新会话</span>
+          <div class="btn-group">
+            <button id="stopBtn" class="stop-btn hidden">⏹ 停止</button>
+            <button id="sendBtn" class="send-btn">发送 ↵</button>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
