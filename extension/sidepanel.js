@@ -1172,6 +1172,8 @@ async function runAgyTask({ mode = 'chat', userPrompt = '', screenshotDataUrl = 
     displayUserTitle = userPrompt ? `📸 截屏分析：${userPrompt}` : '📸 截屏识别与中文翻译';
   }
 
+  const requestEngine = currentEngine;
+  const requestConversationId = currentConversationIdsByEngine[requestEngine] || currentConversationId;
   const engMeta = getCurrentEngineMeta();
   const selectedModel = modelSelectEl.value || '';
   const selectedModelLabel =
@@ -1229,14 +1231,14 @@ async function runAgyTask({ mode = 'chat', userPrompt = '', screenshotDataUrl = 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        engine: currentEngine,
+        engine: requestEngine,
         prompt: userPrompt,
         mode,
         includePageContext: shouldIncludeContext,
         pageContext: extractedContexts[0] || null,
         pageContexts: extractedContexts,
         screenshotDataUrl,
-        conversationId: currentConversationId,
+        conversationId: requestConversationId,
         model: selectedModel,
         effort: effortSelectEl.value || 'low',
         workspacePath: workspaceSelectEl?.value || '',
@@ -1286,9 +1288,11 @@ async function runAgyTask({ mode = 'chat', userPrompt = '', screenshotDataUrl = 
         }
 
         if (payload.conversationId) {
-          currentConversationId = payload.conversationId;
-          currentConversationIdsByEngine[currentEngine] = payload.conversationId;
-          convIndicatorEl.textContent = `${engMeta.name} #${currentConversationId.slice(0, 6)}（可连续追问 · 点击切换）`;
+          currentConversationIdsByEngine[requestEngine] = payload.conversationId;
+          if (currentEngine === requestEngine) {
+            currentConversationId = payload.conversationId;
+            convIndicatorEl.textContent = `${engMeta.name} #${currentConversationId.slice(0, 6)}（可连续追问 · 点击切换）`;
+          }
         }
 
         if (evtType === 'delta' && payload.text) {
@@ -1845,7 +1849,11 @@ if (workspaceSelectEl) {
   });
 }
 
+let loadModelsSeq = 0;
+
 async function loadModels(forceRefresh = false) {
+  const mySeq = ++loadModelsSeq;
+  const targetEngine = currentEngine;
   try {
     if (forceRefresh) {
       refreshModelsBtn.disabled = true;
@@ -1858,21 +1866,23 @@ async function loadModels(forceRefresh = false) {
         'selectedModel',
         'selectedEffort',
       ]);
+    if (mySeq !== loadModelsSeq || currentEngine !== targetEngine) return;
     if (selectedEffort) {
       effortSelectEl.value = selectedEffort;
     }
 
     const res = await fetch(
-      `${BRIDGE_URL}/models?engine=${encodeURIComponent(currentEngine)}${forceRefresh ? '&refresh=1' : ''}`
+      `${BRIDGE_URL}/models?engine=${encodeURIComponent(targetEngine)}${forceRefresh ? '&refresh=1' : ''}`
     );
     const data = await res.json();
+    if (mySeq !== loadModelsSeq || currentEngine !== targetEngine) return;
     const models = Array.isArray(data?.models) ? data.models : [];
 
     if (models.length > 0) {
       const savedForEngine =
-        selectedModelsByEngine[currentEngine] !== undefined
-          ? selectedModelsByEngine[currentEngine]
-          : currentEngine === 'agy'
+        selectedModelsByEngine[targetEngine] !== undefined
+          ? selectedModelsByEngine[targetEngine]
+          : targetEngine === 'agy'
             ? selectedModel
             : undefined;
 
@@ -1953,16 +1963,41 @@ refreshModelsBtn.addEventListener('click', () => {
 
 let pluginUpdateRunning = false;
 
+async function waitForBridgeRestart(previousPid = null, maxWaitMs = 12000) {
+  const start = Date.now();
+  await new Promise((r) => setTimeout(r, 600));
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const res = await fetch(`${BRIDGE_URL}/health`, { cache: 'no-store' });
+      if (res.ok) {
+        const info = await res.json().catch(() => null);
+        if (!previousPid || !info?.pid || info.pid !== previousPid) {
+          return true;
+        }
+      }
+    } catch {
+      // bridge is restarting
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return false;
+}
+
 async function checkPluginUpdate(force = false) {
+  if (pluginUpdateRunning) return null;
   try {
     const res = await fetch(`${BRIDGE_URL}/update-check${force ? '?force=1' : ''}`);
     if (!res.ok) return null;
     const data = await res.json();
+    if (pluginUpdateRunning) return data;
+
     if (data?.ok && data.hasUpdate) {
       if (updatePluginBtn) {
         updatePluginBtn.classList.remove('hidden');
         updatePluginBtn.textContent = `🚀 更新 (${data.remoteSha})`;
-        updatePluginBtn.title = `发现 GitHub 新版本 (${data.localSha} → ${data.remoteSha})\n点击一键自动拉取更新并重载插件`;
+        updatePluginBtn.title = data.versionUnknown
+          ? `未检测到本地版本记录，远端最新版本为 ${data.remoteSha}\n点击一键拉取同步并重载插件`
+          : `发现 GitHub 新版本 (${data.localSha} → ${data.remoteSha})\n点击一键自动拉取更新并重载插件`;
       }
       if (menuCheckUpdateTextEl) {
         menuCheckUpdateTextEl.textContent = `一键更新到新版本 (${data.remoteSha})`;
@@ -1971,8 +2006,10 @@ async function checkPluginUpdate(force = false) {
       if (updatePluginBtn) {
         updatePluginBtn.classList.add('hidden');
       }
-      if (menuCheckUpdateTextEl && data.localSha) {
-        menuCheckUpdateTextEl.textContent = `检查更新 (当前 ${data.localSha})`;
+      if (menuCheckUpdateTextEl) {
+        menuCheckUpdateTextEl.textContent = data.localSha
+          ? `检查更新 (当前 ${data.localSha})`
+          : '检查并更新插件';
       }
     }
     return data;
@@ -1993,27 +2030,68 @@ async function applyPluginUpdate() {
   if (menuCheckUpdateBtn) {
     menuCheckUpdateBtn.disabled = true;
   }
+  if (menuCheckUpdateTextEl) {
+    menuCheckUpdateTextEl.textContent = '正在拉取更新...';
+  }
 
-  appendMessage(
-    'assistant',
-    '🔄 正在从 GitHub 拉取最新版本并同步插件与后台服务，完成后将自动重载侧边栏...',
-    { persist: false }
+  const updateMsg = appendMessage(
+    'ai',
+    '系统更新',
+    '🔄 正在从 GitHub 拉取最新版本并同步插件与后台服务，请稍候...'
   );
 
   try {
+    let previousPid = null;
+    try {
+      const hRes = await fetch(`${BRIDGE_URL}/health`, { cache: 'no-store' });
+      if (hRes.ok) {
+        const hData = await hRes.json();
+        previousPid = hData?.pid || null;
+      }
+    } catch {}
+
     const res = await fetch(`${BRIDGE_URL}/update-apply`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok || !data?.ok) {
       throw new Error(data?.error || '更新失败');
     }
-    appendMessage(
-      'assistant',
-      `✅ 已更新到最新版本 (\`${data.updatedSha || 'latest'}\`)，正在自动重载插件...`,
-      { persist: false }
+    const sourceSyncHint =
+      data.sourceDirSynced === false
+        ? '\n\n💡 提示：检测到你本地源码仓库含未提交改动或分支偏移，因此未自动覆盖你的开发目录。若你的 Chrome 扩展是从开发目录加载的，请执行 `git pull` 或改为从 `~/.agy-sidebar-bridge/extension` 加载。'
+        : '';
+
+    if (data.willRestart === false) {
+      pluginUpdateRunning = false;
+      if (updatePluginBtn) {
+        updatePluginBtn.disabled = false;
+        updatePluginBtn.classList.add('hidden');
+      }
+      if (menuCheckUpdateBtn) {
+        menuCheckUpdateBtn.disabled = false;
+      }
+      if (menuCheckUpdateTextEl) {
+        menuCheckUpdateTextEl.textContent = `已同步 (${data.updatedSha || 'latest'})`;
+      }
+      updateMsg.appendDelta(
+        `\n\n✅ 已同步最新版本 (\`${data.updatedSha || 'latest'}\`)。由于当前后台服务未通过 \`launchd\` 托管，请先在终端重新运行 \`~/.agy-sidebar-bridge/repo/install.sh\` 重启后台服务，然后再重新打开侧边栏。${sourceSyncHint}`
+      );
+      return;
+    }
+
+    updateMsg.setStatus('正在等待本地 Bridge 服务重启...');
+    const restarted = await waitForBridgeRestart(previousPid, 12000);
+    if (!restarted) {
+      throw new Error(
+        '代码已更新，但等待本地 Bridge 服务重启超时。请在终端运行 ~/.agy-sidebar-bridge/repo/install.sh 重启服务。'
+      );
+    }
+    updateMsg.setStatus('');
+    updateMsg.appendDelta(
+      `\n\n✅ 已更新至最新版本 (\`${data.updatedSha || 'latest'}\`)，正在自动重载侧边栏...${sourceSyncHint}`
     );
     setTimeout(() => {
       chrome.runtime.reload();
-    }, 900);
+    }, 400);
   } catch (err) {
     pluginUpdateRunning = false;
     if (updatePluginBtn) {
@@ -2023,11 +2101,11 @@ async function applyPluginUpdate() {
     if (menuCheckUpdateBtn) {
       menuCheckUpdateBtn.disabled = false;
     }
-    appendMessage(
-      'assistant',
-      `❌ 自动更新失败：${err.message || String(err)}`,
-      { isError: true, persist: false }
-    );
+    if (menuCheckUpdateTextEl) {
+      menuCheckUpdateTextEl.textContent = '重试检查并更新插件';
+    }
+    updateMsg.setStatus('');
+    updateMsg.setError(`自动更新失败：${err.message || String(err)}`);
   }
 }
 
@@ -2040,20 +2118,22 @@ if (updatePluginBtn) {
 if (menuCheckUpdateBtn) {
   menuCheckUpdateBtn.addEventListener('click', async () => {
     if (quickActionsMenuEl) quickActionsMenuEl.classList.add('hidden');
+    if (pluginUpdateRunning) return;
     const info = await checkPluginUpdate(true);
     if (info?.hasUpdate) {
       await applyPluginUpdate();
     } else if (info?.ok) {
       appendMessage(
-        'assistant',
-        `✅ 当前已是最新版本 (\`${info.localSha || 'latest'}\`)，无需更新。`,
-        { persist: false }
+        'ai',
+        '系统更新',
+        `✅ 当前已是最新版本 (\`${info.localSha || 'latest'}\`)，无需更新。`
       );
     } else {
-      appendMessage(
-        'assistant',
-        '⚠️ 无法连接 GitHub 检查更新，请检查网络或本地 Bridge 服务状态。',
-        { isError: true, persist: false }
+      const errMsg = appendMessage('ai', '系统更新', '');
+      errMsg.setError(
+        info?.error
+          ? `检查更新失败：${info.error}`
+          : '无法连接 GitHub 检查更新，请检查网络或本地 Bridge 服务状态。'
       );
     }
   });

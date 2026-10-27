@@ -4,8 +4,8 @@ You are an AI agent (e.g., Antigravity `agy`, Claude Code, Cursor, Gemini CLI, C
 
 **Done =**
 1. The installer (`./install.sh` or the remote `curl` installer) completes and `./install.sh --doctor` reports **`0 fail`** checks (`Node.js >= 18`, at least one AI CLI `agy`/`claude`/`gemini`/`codex` available, extension files intact, and `http://127.0.0.1:18765/health` returns `"ok": true`).
-2. `chrome://extensions/` has been opened in Google Chrome alongside Finder highlighting the `extension` folder, and the extension directory path is copied to the user's clipboard.
-3. The user confirms the unpacked extension is loaded in Chrome and the sidebar status badge shows **`在线`**.
+2. `chrome://extensions/` has been opened in Google Chrome alongside Finder highlighting the `~/.agy-sidebar-bridge/extension` folder, and the extension directory path is copied to the user's clipboard.
+3. The user confirms the unpacked extension is loaded in Chrome and the status dot next to the sidebar title is **green** (online).
 
 Never use `sudo`. Because Chrome forbids external scripts from silently installing unpacked extensions into a user profile, you will automate 99% of the setup and pop open the exact Chrome page + Finder folder so the user only needs a 2-second drag-and-drop.
 
@@ -28,7 +28,7 @@ Never use `sudo`. Because Chrome forbids external scripts from silently installi
 
 ### What the installer does automatically:
 - Removes macOS quarantine attributes (`xattr -cr`) added by Slack / WeChat / Feishu / browser downloads.
-- Copies `bridge/server.mjs` and `extension/` into `~/.agy-sidebar-bridge/` so macOS TCC (`Operation not permitted` on `~/Downloads` or `~/Desktop`) never blocks the background `launchd` service, and cleaning up `~/Downloads` later will not break the unpacked Chrome extension.
+- Copies the full `bridge/` and `extension/` directories into `~/.agy-sidebar-bridge/` so macOS TCC (`Operation not permitted` on `~/Downloads` or `~/Desktop`) never blocks the background `launchd` service, and cleaning up `~/Downloads` or running in-sidebar updates always keeps the loaded extension in sync.
 - Detects Node.js (`v18+`) across `nvm`, `fnm`, `volta`, Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`), and standard paths.
 - Detects installed AI CLIs (`agy`, `claude`, `gemini`, `codex`) and injects their full paths into `~/Library/LaunchAgents/com.perry.agy-sidebar-bridge.plist`.
 - Starts the background service on `http://127.0.0.1:18765` (with automatic `nohup` fallback if `launchctl` is restricted by the host environment).
@@ -44,7 +44,7 @@ Never use `sudo`. Because Chrome forbids external scripts from silently installi
 Verify the installation by running the built-in diagnostic check:
 
 ```bash
-~/.agy-sidebar-bridge/repo/install.sh --doctor 2>/dev/null || ./install.sh --doctor
+if [ -x ./install.sh ]; then ./install.sh --doctor; else ~/.agy-sidebar-bridge/repo/install.sh --doctor; fi
 ```
 
 Each `[FAIL]` or `[WARN]` row prints a `hint` — follow it and re-run once:
@@ -61,7 +61,7 @@ Do not proceed to Step 3 until `--doctor` reports `0 fail`.
 If Chrome or Finder was not opened yet, run:
 
 ```bash
-~/.agy-sidebar-bridge/repo/install.sh --open-chrome 2>/dev/null || ./install.sh --open-chrome
+if [ -x ./install.sh ]; then ./install.sh --open-chrome; else ~/.agy-sidebar-bridge/repo/install.sh --open-chrome; fi
 ```
 
 Then give the user these concise instructions:
@@ -77,7 +77,7 @@ Then give the user these concise instructions:
 Ask the user to:
 1. Click the Extensions puzzle icon (`🧩`) in the top-right corner of Chrome and pin **AI CLI Sidebar**.
 2. Click the extension icon (or press `Cmd + Shift + Y`) to open the sidebar.
-3. Confirm that the status badge next to the title reads **`在线`** (green).
+3. Confirm that the status indicator dot next to the title turns **green** (hover tooltip shows online status and detected CLI path).
 
 ---
 
@@ -86,4 +86,5 @@ Ask the user to:
 When reporting completion, briefly inform the user:
 - **100% Local Execution**: The extension communicates exclusively with the local bridge at `http://127.0.0.1:18765`, which invokes the user's locally installed CLI (`agy`, `claude`, `gemini`, `codex`).
 - **Local Session Storage**: Chat history and temporary screenshots are stored strictly on the user's own machine under `~/.agy-sidebar-bridge/` (never committed to Git).
-- **Untrusted Page Content**: When summarizing or analyzing webpages, page text is passed to the local CLI as untrusted context data.
+- **Untrusted Page Content & Tool Guardrails**: Page text is passed to the local CLI inside `<untrusted_page_data>` tags with an explicit prompt-injection isolation notice. Local shell/file-mutation tools (`Bash`, `Write`, `Edit`, `NotebookEdit`), outbound web fetch (`WebFetch`, `WebSearch`), and code-executing MCP tools (`ctx_execute`, `ctx_execute_file`, `execute_terminal_command`, etc.) are explicitly blocked in Claude Code (`--disallowedTools`). Read-only tools and read-only MCP integrations (Figma read tools, Context7 docs lookup, Context-Mode search/stats) are enabled by default, while Figma write/diagram tools (`create_session`, `use_figma`, `generate_diagram`, `generate_figma_design`) are only unlocked when the user's own prompt explicitly requests Figma/diagram generation (or via `CLAUDE_ALLOWED_TOOLS`).
+- **1-Click In-Sidebar Updates**: When new commits are pushed to GitHub (`main`), a **`🚀 更新`** button appears in the sidebar header (and in the `⚡ 快捷操作` menu), allowing users to pull the update, restart the `launchd`-managed bridge, and hot-reload the extension in one click.

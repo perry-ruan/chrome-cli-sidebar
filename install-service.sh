@@ -28,13 +28,8 @@ export PATH="${FULL_PATH}"
 
 NODE_BIN="$(command -v node || echo '/usr/local/bin/node')"
 
-# 如果在 Downloads / Desktop / tmp / 远程一键安装目录运行，优先引导加载 ~/.agy-sidebar-bridge/extension 防止清理下载目录导致插件失效
-RECOMMENDED_EXT_DIR="${SOURCE_DIR}/extension"
-case "${SOURCE_DIR}" in
-  "${HOME}/Downloads"*|"${HOME}/Desktop"*|"/tmp"*|"/var/folders"*|"${RUNTIME_DIR}"*)
-    RECOMMENDED_EXT_DIR="${PERSISTENT_EXT_DIR}"
-    ;;
-esac
+# 始终统一引导加载 ~/.agy-sidebar-bridge/extension，确保清理下载目录或侧边栏内热更新后 Chrome 加载的始终是最新受管副本
+RECOMMENDED_EXT_DIR="${PERSISTENT_EXT_DIR}"
 
 run_doctor() {
   local fail_count=0
@@ -93,7 +88,22 @@ run_doctor() {
     fail_count=$((fail_count + 1))
   fi
 
-  # 4. 本地 Bridge 服务健康检查 (127.0.0.1:18765)
+  # 4. Git 与 LaunchAgent 托管检查
+  if command -v git >/dev/null 2>&1; then
+    echo "[PASS] Git: $(command -v git)（支持侧边栏内一键更新）"
+  else
+    echo "[WARN] Git 未找到（侧边栏一键更新功能需要 git）"
+    warn_count=$((warn_count + 1))
+  fi
+
+  if launchctl print "gui/$(id -u)/${PLIST_NAME}" >/dev/null 2>&1; then
+    echo "[PASS] LaunchAgent 托管: ${PLIST_NAME} 已注册"
+  else
+    echo "[WARN] LaunchAgent 未注册: ${PLIST_NAME}（重启电脑或自动更新后可能不会自动拉起）"
+    warn_count=$((warn_count + 1))
+  fi
+
+  # 5. 本地 Bridge 服务健康检查 (127.0.0.1:18765)
   local health_json
   if health_json="$(curl -fsS --max-time 3 "http://127.0.0.1:18765/health" 2>/dev/null)"; then
     if echo "${health_json}" | grep -q '"ok":true'; then
@@ -161,14 +171,20 @@ xattr -cr "${SOURCE_DIR}" 2>/dev/null || true
 
 # 同步服务端脚本与扩展静态目录到不受 macOS 权限拦截的 ~/.agy-sidebar-bridge
 mkdir -p "${RUNTIME_DIR}/bridge" "${PERSISTENT_EXT_DIR}" "${LOG_DIR}" "${HOME}/Library/LaunchAgents"
-cp -f "${SOURCE_DIR}/bridge/server.mjs" "${SERVER_SCRIPT}"
-chmod +x "${SERVER_SCRIPT}"
-if [[ -d "${SOURCE_DIR}/extension" ]]; then
-  cp -Rf "${SOURCE_DIR}/extension/"* "${PERSISTENT_EXT_DIR}/"
+if [[ "${SOURCE_DIR}" != "${RUNTIME_DIR}" ]]; then
+  rm -rf "${RUNTIME_DIR}/bridge/"*
+  cp -Rf "${SOURCE_DIR}/bridge/"* "${RUNTIME_DIR}/bridge/"
+  if [[ -d "${SOURCE_DIR}/extension" ]]; then
+    rm -rf "${PERSISTENT_EXT_DIR}/"*
+    cp -Rf "${SOURCE_DIR}/extension/"* "${PERSISTENT_EXT_DIR}/"
+  fi
 fi
+chmod +x "${SERVER_SCRIPT}"
 printf "%s" "${SOURCE_DIR}" > "${RUNTIME_DIR}/source-dir.txt" 2>/dev/null || true
 if command -v git >/dev/null 2>&1 && git -C "${SOURCE_DIR}" rev-parse HEAD >/dev/null 2>&1; then
   git -C "${SOURCE_DIR}" rev-parse HEAD > "${RUNTIME_DIR}/version.txt" 2>/dev/null || true
+else
+  rm -f "${RUNTIME_DIR}/version.txt" 2>/dev/null || true
 fi
 
 if [[ ! -x "$NODE_BIN" ]]; then
@@ -194,12 +210,12 @@ for pair in "agy:${DETECTED_AGY}" "claude:${DETECTED_CLAUDE}" "gemini:${DETECTED
   fi
 done
 
-# 先停止旧的 LaunchAgent 服务并清理可能残留占用 18765 端口的旧进程
+# 先停止旧的 LaunchAgent 服务并清理可能残留占用 18765 端口的旧服务端监听进程（严禁使用不带 -sTCP:LISTEN 的 lsof 以免误杀 Chrome 客户端进程）
 launchctl bootout "gui/$(id -u)/${PLIST_NAME}" 2>/dev/null || launchctl unload "${PLIST_PATH}" 2>/dev/null || true
 if command -v lsof >/dev/null 2>&1; then
-  OLD_PIDS="$(lsof -ti:18765 2>/dev/null || true)"
+  OLD_PIDS="$(lsof -tiTCP:18765 -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "${OLD_PIDS}" ]]; then
-    echo "🔄 正在终止旧的 18765 端口服务进程 (${OLD_PIDS})..."
+    echo "🔄 正在终止旧的 18765 端口监听进程 (${OLD_PIDS})..."
     kill -9 ${OLD_PIDS} 2>/dev/null || true
     sleep 0.5
   fi
