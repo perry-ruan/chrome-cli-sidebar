@@ -46,6 +46,9 @@ const tabSearchInputEl = document.getElementById('tabSearchInput');
 const btnSelectActiveTab = document.getElementById('btnSelectActiveTab');
 const btnClearAllTabs = document.getElementById('btnClearAllTabs');
 const btnClosePicker = document.getElementById('btnClosePicker');
+const updatePluginBtn = document.getElementById('updatePluginBtn');
+const menuCheckUpdateBtn = document.getElementById('menuCheckUpdateBtn');
+const menuCheckUpdateTextEl = document.getElementById('menuCheckUpdateText');
 
 let currentEngine = 'agy';
 let pastedScreenshotDataUrl = null;
@@ -1948,6 +1951,114 @@ refreshModelsBtn.addEventListener('click', () => {
   loadModels(true);
 });
 
+let pluginUpdateRunning = false;
+
+async function checkPluginUpdate(force = false) {
+  try {
+    const res = await fetch(`${BRIDGE_URL}/update-check${force ? '?force=1' : ''}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.ok && data.hasUpdate) {
+      if (updatePluginBtn) {
+        updatePluginBtn.classList.remove('hidden');
+        updatePluginBtn.textContent = `🚀 更新 (${data.remoteSha})`;
+        updatePluginBtn.title = `发现 GitHub 新版本 (${data.localSha} → ${data.remoteSha})\n点击一键自动拉取更新并重载插件`;
+      }
+      if (menuCheckUpdateTextEl) {
+        menuCheckUpdateTextEl.textContent = `一键更新到新版本 (${data.remoteSha})`;
+      }
+    } else if (data?.ok) {
+      if (updatePluginBtn) {
+        updatePluginBtn.classList.add('hidden');
+      }
+      if (menuCheckUpdateTextEl && data.localSha) {
+        menuCheckUpdateTextEl.textContent = `检查更新 (当前 ${data.localSha})`;
+      }
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function applyPluginUpdate() {
+  if (pluginUpdateRunning) return;
+  pluginUpdateRunning = true;
+
+  if (quickActionsMenuEl) quickActionsMenuEl.classList.add('hidden');
+  if (updatePluginBtn) {
+    updatePluginBtn.disabled = true;
+    updatePluginBtn.textContent = '⏳ 更新中...';
+  }
+  if (menuCheckUpdateBtn) {
+    menuCheckUpdateBtn.disabled = true;
+  }
+
+  appendMessage(
+    'assistant',
+    '🔄 正在从 GitHub 拉取最新版本并同步插件与后台服务，完成后将自动重载侧边栏...',
+    { persist: false }
+  );
+
+  try {
+    const res = await fetch(`${BRIDGE_URL}/update-apply`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || '更新失败');
+    }
+    appendMessage(
+      'assistant',
+      `✅ 已更新到最新版本 (\`${data.updatedSha || 'latest'}\`)，正在自动重载插件...`,
+      { persist: false }
+    );
+    setTimeout(() => {
+      chrome.runtime.reload();
+    }, 900);
+  } catch (err) {
+    pluginUpdateRunning = false;
+    if (updatePluginBtn) {
+      updatePluginBtn.disabled = false;
+      updatePluginBtn.textContent = '🚀 重试更新';
+    }
+    if (menuCheckUpdateBtn) {
+      menuCheckUpdateBtn.disabled = false;
+    }
+    appendMessage(
+      'assistant',
+      `❌ 自动更新失败：${err.message || String(err)}`,
+      { isError: true, persist: false }
+    );
+  }
+}
+
+if (updatePluginBtn) {
+  updatePluginBtn.addEventListener('click', () => {
+    applyPluginUpdate();
+  });
+}
+
+if (menuCheckUpdateBtn) {
+  menuCheckUpdateBtn.addEventListener('click', async () => {
+    if (quickActionsMenuEl) quickActionsMenuEl.classList.add('hidden');
+    const info = await checkPluginUpdate(true);
+    if (info?.hasUpdate) {
+      await applyPluginUpdate();
+    } else if (info?.ok) {
+      appendMessage(
+        'assistant',
+        `✅ 当前已是最新版本 (\`${info.localSha || 'latest'}\`)，无需更新。`,
+        { persist: false }
+      );
+    } else {
+      appendMessage(
+        'assistant',
+        '⚠️ 无法连接 GitHub 检查更新，请检查网络或本地 Bridge 服务状态。',
+        { isError: true, persist: false }
+      );
+    }
+  });
+}
+
 // Init sequence
 (async () => {
   try {
@@ -1965,5 +2076,7 @@ refreshModelsBtn.addEventListener('click', () => {
     refreshActiveTabContext(),
   ]);
   setInterval(() => checkBridgeHealth(false), 10000);
+  setTimeout(() => checkPluginUpdate(false), 2500);
+  setInterval(() => checkPluginUpdate(false), 15 * 60 * 1000);
   checkPendingActionOnOpen();
 })();

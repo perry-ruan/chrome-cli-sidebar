@@ -166,6 +166,10 @@ chmod +x "${SERVER_SCRIPT}"
 if [[ -d "${SOURCE_DIR}/extension" ]]; then
   cp -Rf "${SOURCE_DIR}/extension/"* "${PERSISTENT_EXT_DIR}/"
 fi
+printf "%s" "${SOURCE_DIR}" > "${RUNTIME_DIR}/source-dir.txt" 2>/dev/null || true
+if command -v git >/dev/null 2>&1 && git -C "${SOURCE_DIR}" rev-parse HEAD >/dev/null 2>&1; then
+  git -C "${SOURCE_DIR}" rev-parse HEAD > "${RUNTIME_DIR}/version.txt" 2>/dev/null || true
+fi
 
 if [[ ! -x "$NODE_BIN" ]]; then
   echo "❌ 未检测到 Node.js，请先安装 Node.js (v18+)，例如: brew install node"

@@ -22,6 +22,7 @@
         </select>
       </div>
       <div class="topbar-actions">
+        <button id="updatePluginBtn" class="icon-btn update-badge-btn hidden" title="发现新版本，点击一键自动更新插件与后台服务">🚀 更新</button>
         <button id="historyBtn" class="icon-btn" title="查看和切换历史会话">🕘 历史</button>
         <button id="newChatBtn" class="icon-btn" title="开启新对话">＋ 新对话</button>
       </div>
@@ -163,6 +164,13 @@
           <span class="quick-menu-icon">✅</span>
           <span class="quick-menu-text">/todo 提炼待办</span>
           <span class="quick-menu-hint">整理行动项与优先级</span>
+        </button>
+
+        <div class="quick-menu-divider"></div>
+        <button id="menuCheckUpdateBtn" type="button" class="quick-menu-item">
+          <span class="quick-menu-icon">🔄</span>
+          <span id="menuCheckUpdateText" class="quick-menu-text">检查并更新插件</span>
+          <span class="quick-menu-hint">GitHub 自动同步</span>
         </button>
       </div>
 

@@ -142,6 +142,24 @@ body {
   border-color: var(--border-strong);
 }
 
+.update-badge-btn {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+  font-weight: 600;
+}
+
+.update-badge-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.update-badge-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 /* 单行紧凑配置栏：模型 + 强度 + 本地代码库 */
 .model-bar {
   display: flex;

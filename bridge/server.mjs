@@ -1003,6 +1003,156 @@ function readJsonBody(req) {
   });
 }
 
+const REPO_URL = 'https://github.com/perry-ruan/chrome-cli-sidebar.git';
+const VERSION_FILE = path.join(DATA_ROOT, 'version.txt');
+const SOURCE_DIR_FILE = path.join(DATA_ROOT, 'source-dir.txt');
+const MANAGED_REPO_DIR = path.join(DATA_ROOT, 'repo');
+let cachedUpdateCheck = null;
+let cachedUpdateCheckAt = 0;
+
+function runGitAsync(args, cwd = DATA_ROOT, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, {
+      cwd: existsSync(cwd) ? cwd : DATA_ROOT,
+      env: { ...process.env, PATH: buildEnhancedPath(), GIT_TERMINAL_PROMPT: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(new Error('Git command timed out'));
+    }, timeoutMs);
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out.trim());
+      else reject(new Error(err.trim() || `git exited with code ${code}`));
+    });
+  });
+}
+
+async function getLocalInstalledSha() {
+  try {
+    if (existsSync(VERSION_FILE)) {
+      const v = (await fs.readFile(VERSION_FILE, 'utf8')).trim();
+      if (/^[0-9a-f]{7,40}$/i.test(v)) return v;
+    }
+  } catch {}
+
+  const candidates = [MANAGED_REPO_DIR, PROJECT_ROOT];
+  try {
+    if (existsSync(SOURCE_DIR_FILE)) {
+      const src = (await fs.readFile(SOURCE_DIR_FILE, 'utf8')).trim();
+      if (src) candidates.unshift(src);
+    }
+  } catch {}
+
+  for (const dir of candidates) {
+    if (dir && existsSync(path.join(dir, '.git'))) {
+      try {
+        const sha = await runGitAsync(['rev-parse', 'HEAD'], dir, 4000);
+        if (/^[0-9a-f]{7,40}$/i.test(sha)) return sha;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+async function checkRemoteUpdate(force = false) {
+  const now = Date.now();
+  if (!force && cachedUpdateCheck && now - cachedUpdateCheckAt < 5 * 60 * 1000) {
+    return cachedUpdateCheck;
+  }
+  const localSha = await getLocalInstalledSha();
+  const lsOut = await runGitAsync(['ls-remote', REPO_URL, 'refs/heads/main'], DATA_ROOT, 8000);
+  const remoteSha = (lsOut.split(/\s+/)[0] || '').trim();
+  const hasUpdate = Boolean(
+    localSha &&
+      remoteSha &&
+      /^[0-9a-f]{7,40}$/i.test(remoteSha) &&
+      !remoteSha.startsWith(localSha) &&
+      !localSha.startsWith(remoteSha)
+  );
+  cachedUpdateCheck = {
+    ok: true,
+    localSha: localSha ? localSha.slice(0, 7) : null,
+    remoteSha: remoteSha ? remoteSha.slice(0, 7) : null,
+    hasUpdate,
+  };
+  cachedUpdateCheckAt = now;
+  return cachedUpdateCheck;
+}
+
+async function applyRemoteUpdate() {
+  if (existsSync(path.join(MANAGED_REPO_DIR, '.git'))) {
+    await runGitAsync(['fetch', '--depth=1', 'origin', 'main'], MANAGED_REPO_DIR, 25000);
+    await runGitAsync(['reset', '--hard', 'origin/main'], MANAGED_REPO_DIR, 10000);
+  } else {
+    await fs.rm(MANAGED_REPO_DIR, { recursive: true, force: true });
+    await runGitAsync(['clone', '--depth=1', REPO_URL, MANAGED_REPO_DIR], DATA_ROOT, 30000);
+  }
+
+  const newSha = await runGitAsync(['rev-parse', 'HEAD'], MANAGED_REPO_DIR, 5000);
+  await fs.writeFile(VERSION_FILE, `${newSha}\n`, 'utf8');
+
+  // 1. Sync to ~/.agy-sidebar-bridge/bridge & ~/.agy-sidebar-bridge/extension
+  const targetBridgeDir = path.join(DATA_ROOT, 'bridge');
+  const targetExtDir = path.join(DATA_ROOT, 'extension');
+  await fs.mkdir(targetBridgeDir, { recursive: true });
+  await fs.mkdir(targetExtDir, { recursive: true });
+  await fs.copyFile(
+    path.join(MANAGED_REPO_DIR, 'bridge', 'server.mjs'),
+    path.join(targetBridgeDir, 'server.mjs')
+  );
+  await fs.cp(path.join(MANAGED_REPO_DIR, 'extension'), targetExtDir, {
+    recursive: true,
+    force: true,
+  });
+
+  // 2. If user installed from another clean local directory, also keep its extension/ folder in sync
+  try {
+    if (existsSync(SOURCE_DIR_FILE)) {
+      const srcDir = (await fs.readFile(SOURCE_DIR_FILE, 'utf8')).trim();
+      if (srcDir && srcDir !== MANAGED_REPO_DIR && existsSync(path.join(srcDir, 'extension'))) {
+        let canSyncSource = true;
+        if (existsSync(path.join(srcDir, '.git'))) {
+          const dirty = await runGitAsync(['status', '--porcelain'], srcDir, 4000).catch(() => 'dirty');
+          if (dirty !== '') {
+            canSyncSource = false;
+          } else {
+            await runGitAsync(['pull', '--ff-only', 'origin', 'main'], srcDir, 15000).catch(() => {});
+          }
+        }
+        if (canSyncSource) {
+          await fs.cp(path.join(MANAGED_REPO_DIR, 'extension'), path.join(srcDir, 'extension'), {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+    }
+  } catch {}
+
+  cachedUpdateCheck = {
+    ok: true,
+    localSha: newSha.slice(0, 7),
+    remoteSha: newSha.slice(0, 7),
+    hasUpdate: false,
+  };
+  cachedUpdateCheckAt = Date.now();
+  return newSha.slice(0, 7);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     setCorsHeaders(req, res);
@@ -1057,6 +1207,35 @@ const server = http.createServer(async (req, res) => {
       const workspaces = discoverLocalWorkspaces();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ workspaces }));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/update-check') {
+      try {
+        const force = url.searchParams.get('force') === '1';
+        const status = await checkRemoteUpdate(force);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(status));
+      } catch (err) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, hasUpdate: false, error: err.message }));
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/update-apply') {
+      try {
+        const updatedSha = await applyRemoteUpdate();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, updatedSha }));
+        // Exit after response flushes so LaunchAgent (KeepAlive: true) automatically restarts with new server.mjs
+        setTimeout(() => {
+          process.exit(0);
+        }, 400);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
       return;
     }
 
