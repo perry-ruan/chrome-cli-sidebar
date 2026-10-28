@@ -573,7 +573,7 @@ function buildFinalPrompt({
   const parts = [];
 
   parts.push(
-    `你是一个运行在 Chrome 侧边栏中的本地 AI 助手（当前底层引擎：${engineName}）。请默认使用清晰、结构化的中文回答（除非用户另有要求）。不要修改任何本地代码文件。`
+    `你是一个运行在 Chrome 侧边栏中的本地 AI 助手（当前底层引擎：${engineName}）。请默认使用清晰、结构化的中文回答（除非用户另有要求）。不要修改任何本地代码文件。\n【非交互式环境工具规范】当前处于无头（Headless）非交互模式，任何需要终端交互确认的 shell 命令（如通过 \`run_command\` 执行读取受保护目录或系统配置）都会被自动拒绝并导致回合中断。因此：凡需读取本地文件、图片或 MCP 工具 Schema（如 \`~/.gemini/antigravity-cli/mcp/<server>/<tool>.json\`），必须优先使用内置的 \`read_file\` / \`Read\` 工具，严禁使用 \`run_command\` 执行 \`cat\`/\`head\`。调用完工具后必须在同一回合输出完整回答，不可只调用工具而不输出文本。`
   );
 
   if (workspacePath) {
@@ -680,6 +680,9 @@ function createCliAdapter({
   conversationId = safeConversationId || null;
   let activeConversationId = conversationId;
   let streamedAnyDelta = false;
+  let sawToolStep = false;
+  let lastToolStep = '';
+  let emptyToolTurnDetected = false;
   let finished = false;
   let initSent = false;
 
@@ -735,6 +738,11 @@ function createCliAdapter({
             su.step_type !== 'user_input' &&
             su.step_type !== 'agent_response'
           ) {
+            sawToolStep = true;
+            lastToolStep = su.step_type;
+            console.log(
+              `[chat][${engine.id}] conv=${activeConversationId || '-'} step=${su.step_type} state=${su.state || '-'}`
+            );
             sendSse(res, 'status', {
               stepType: su.step_type,
               state: su.state,
@@ -748,11 +756,19 @@ function createCliAdapter({
             emitInitOnce(r.conversation_id);
           }
           if (!streamedAnyDelta && typeof r.response === 'string' && r.response.length > 0) {
+            streamedAnyDelta = true;
             sendSse(res, 'delta', {
               text: r.response,
               conversationId: activeConversationId,
               engine: engine.id,
             });
+          }
+          if (!streamedAnyDelta && sawToolStep && activeConversationId) {
+            emptyToolTurnDetected = true;
+            console.warn(
+              `[chat][${engine.id}] conv=${activeConversationId} ended tool turn (${lastToolStep}) with empty response; scheduling auto-continue`
+            );
+            return;
           }
           finished = true;
           sendSse(res, 'done', {
@@ -772,6 +788,8 @@ function createCliAdapter({
       handleLine,
       isFinished: () => finished,
       hasStreamedDelta: () => streamedAnyDelta,
+      needsAutoContinue: () => emptyToolTurnDetected && !streamedAnyDelta && Boolean(activeConversationId),
+      getLastToolStep: () => lastToolStep,
       getConversationId: () => activeConversationId,
     };
   }
@@ -1746,11 +1764,16 @@ const server = http.createServer(async (req, res) => {
         }
       };
 
-      const startCliRun = (convIdToUse) => {
+      let autoContinuedEmptyTurn = false;
+      const startCliRun = (convIdToUse, promptOverride = null) => {
         let retryingFreshSession = false;
+        const promptForRun = promptOverride || finalPrompt;
+        console.log(
+          `[chat][${engineInfo.id}] start model=${model || 'default'} effort=${effort || 'low'} conv=${convIdToUse || 'new'} autoContinue=${Boolean(promptOverride)}`
+        );
         const adapter = createCliAdapter({
           engine: engineInfo,
-          finalPrompt,
+          finalPrompt: promptForRun,
           rawPrompt: prompt,
           mode,
           model,
@@ -1762,6 +1785,7 @@ const server = http.createServer(async (req, res) => {
           onInvalidSession: () => {
             if (aborted || res.writableEnded) return;
             retryingFreshSession = true;
+            console.warn(`[chat][${engineInfo.id}] invalid session conv=${convIdToUse}, retrying fresh`);
             sendSse(res, 'status', {
               stepType: '原会话已过期，正在自动开启新会话重试...',
               engine: engineInfo.id,
@@ -1829,6 +1853,30 @@ const server = http.createServer(async (req, res) => {
           if (retryingFreshSession || aborted || res.writableEnded) {
             return;
           }
+          // If tool execution interrupted the turn with empty response (e.g. headless run_command denial or MCP schema error), auto-continue once
+          if (
+            !autoContinuedEmptyTurn &&
+            typeof adapter.needsAutoContinue === 'function' &&
+            adapter.needsAutoContinue() &&
+            adapter.getConversationId()
+          ) {
+            autoContinuedEmptyTurn = true;
+            const resumeId = adapter.getConversationId();
+            const lastTool = typeof adapter.getLastToolStep === 'function' ? adapter.getLastToolStep() : 'tool';
+            console.warn(
+              `[chat][${engineInfo.id}] auto-continuing interrupted tool turn conv=${resumeId} lastTool=${lastTool}`
+            );
+            sendSse(res, 'status', {
+              stepType: '工具调用中断，正在自动续接完成回答...',
+              engine: engineInfo.id,
+              conversationId: resumeId,
+            });
+            startCliRun(
+              resumeId,
+              '刚才你在调用工具（或通过 run_command 读取文件被非交互式环境拒绝）后未输出最终回答就结束了回合。请改用内置的 read_file 工具读取所需 Schema 或文件，继续完成刚才用户的请求并直接输出完整中文回答。'
+            );
+            return;
+          }
           // If resuming a conversation failed cleanly before streaming any delta, automatically retry once without conversationId
           if (
             signal === null &&
@@ -1838,6 +1886,9 @@ const server = http.createServer(async (req, res) => {
             !adapter.isFinished()
           ) {
             retryingFreshSession = true;
+            console.warn(
+              `[chat][${engineInfo.id}] exit code=${code} on conv=${convIdToUse} with 0 delta; retrying fresh session`
+            );
             sendSse(res, 'status', {
               stepType: '续聊会话失效，已自动切换为新会话重试...',
               engine: engineInfo.id,
@@ -1846,12 +1897,25 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           cleanupTempScreenshot();
+          console.log(
+            `[chat][${engineInfo.id}] close conv=${adapter.getConversationId() || convIdToUse || '-'} code=${code} signal=${signal || '-'} streamedDelta=${adapter.hasStreamedDelta()}`
+          );
           if (code !== 0 && !adapter.isFinished()) {
+            if (stderrText.trim()) {
+              console.error(`[chat][${engineInfo.id}] stderr: ${stderrText.trim().slice(0, 500)}`);
+            }
             sendSse(res, 'error', {
               message:
                 stderrText.trim() || `${engineInfo.name} 进程异常退出 (exit code ${code})`,
             });
           } else if (!adapter.isFinished()) {
+            if (!adapter.hasStreamedDelta()) {
+              sendSse(res, 'delta', {
+                text: '⚠️ 本次工具调用未返回文本结果（可能因非交互式命令权限受限中断），请直接发送“继续”或重试。',
+                conversationId: adapter.getConversationId(),
+                engine: engineInfo.id,
+              });
+            }
             sendSse(res, 'done', {
               conversationId: adapter.getConversationId(),
               engine: engineInfo.id,
