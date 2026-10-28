@@ -635,58 +635,335 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function renderInlineMarkdown(raw) {
+  if (!raw) return '';
+  const PH_OPEN = '\uE000';
+  const PH_CLOSE = '\uE001';
+  const inlinePlaceholders = [];
+  const pushInlinePlaceholder = (htmlSnippet) => {
+    const idx = inlinePlaceholders.length;
+    inlinePlaceholders.push(htmlSnippet);
+    return `${PH_OPEN}${idx}${PH_CLOSE}`;
+  };
+  const expandPlaceholdersOnce = (str) =>
+    str.replace(/\uE000(\d+)\uE001/g, (_, idxStr) => inlinePlaceholders[Number(idxStr)] || '');
+
+  // Strip private-use placeholder delimiters from untrusted input upfront so placeholders can never be forged
+  let text = String(raw).replace(/[\uE000-\uE003]/g, '');
+
+  // 1. Extract inline code spans first from raw text so their contents are never parsed as markdown/HTML
+  text = text.replace(/`([^`\n]+)`/g, (_, codeStr) =>
+    pushInlinePlaceholder(`<code>${escapeHtml(codeStr)}</code>`)
+  );
+
+  // 2. Escape HTML on the remaining text
+  text = escapeHtml(text);
+
+  // 3. Allow safe line-break tags (<br>, <br/>, <br />) commonly emitted inside Markdown tables
+  text = text.replace(/&lt;br\s*\/?&gt;/gi, '<br/>');
+
+  // 4. Helper for Bold + Italic (***text***), Bold (**text**), Strikethrough (~~text~~), Italic (*text*)
+  const applyFormatting = (str) =>
+    str
+      .replace(/\*\*\*([^*\n]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/~~([^\n]+?)~~/g, '<del>$1</del>')
+      .replace(/(^|[^*A-Za-z0-9])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![*A-Za-z0-9])/g, '$1<em>$2</em>');
+
+  // 5. Parse Markdown links [label](https://...) safely
+  text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (full, label, rawUrl) => {
+    if (/[\uE000-\uE003]/.test(rawUrl)) {
+      return full;
+    }
+    const cleanUrl = rawUrl
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .trim();
+    if (!/^(https?:\/\/|mailto:)/i.test(cleanUrl)) {
+      return full;
+    }
+    const safeHref = escapeHtml(cleanUrl);
+    // Expand any inline-code placeholders inside label in-place so only a single final pass is needed
+    const formattedLabel = expandPlaceholdersOnce(applyFormatting(label));
+    return pushInlinePlaceholder(
+      `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${formattedLabel}</a>`
+    );
+  });
+
+  // 6. Apply inline formatting outside inline code & link hrefs
+  text = applyFormatting(text);
+
+  // 7. Single-pass placeholder restoration (prevents nested placeholder injection across hrefs)
+  return expandPlaceholdersOnce(text);
+}
+
+function splitMarkdownTableRow(rowLine) {
+  let trimmed = String(rowLine || '').trim();
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith('|') && !trimmed.endsWith('\\|')) trimmed = trimmed.slice(0, -1);
+
+  const cells = [];
+  let current = '';
+  let inCode = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === '`' && (i === 0 || trimmed[i - 1] !== '\\')) {
+      inCode = !inCode;
+      current += ch;
+    } else if (ch === '|' && !inCode && (i === 0 || trimmed[i - 1] !== '\\')) {
+      cells.push(current.trim().replace(/\\\|/g, '|'));
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current.trim().replace(/\\\|/g, '|'));
+  return cells;
+}
+
+function isMarkdownTableDelimiter(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed.includes('|') || !trimmed.includes('-')) return false;
+  const cells = splitMarkdownTableRow(trimmed);
+  if (cells.length < 1) return false;
+  return cells.every((c) => /^:?-{1,}:?$/.test(c.trim()));
+}
+
 function renderMarkdown(md) {
   if (!md) return '';
-  let html = escapeHtml(md);
+  const CODE_PH_OPEN = '\uE002';
+  const CODE_PH_CLOSE = '\uE003';
+  let source = String(md).replace(/\r\n/g, '\n').replace(/[\uE000-\uE003]/g, '');
 
   const codePlaceholders = [];
   const pushCodeBlock = (_, lang, code) => {
-    const cleanLang = (lang || 'code').trim();
-    const trimmedCode = code.trim();
-    const encoded = encodeURIComponent(trimmedCode);
+    const cleanLang = escapeHtml((lang || 'code').trim());
+    const rawTrimmedCode = String(code || '').replace(/^\n+|\n+$/g, '');
+    const encoded = encodeURIComponent(rawTrimmedCode);
+    const escapedCode = escapeHtml(rawTrimmedCode);
     const idx = codePlaceholders.length;
     codePlaceholders.push(
-      `<div class="code-block-wrap"><div class="code-block-header"><span>${cleanLang}</span><button type="button" class="code-copy-btn" data-code="${encoded}">复制代码</button></div><pre><code>${trimmedCode}</code></pre></div>`
+      `<div class="code-block-wrap"><div class="code-block-header"><span>${cleanLang}</span><button type="button" class="code-copy-btn" data-code="${encoded}">复制代码</button></div><pre><code>${escapedCode}</code></pre></div>`
     );
-    return `\n\n@@AGY_CODE_BLOCK_${idx}@@\n\n`;
+    return `\n${CODE_PH_OPEN}${idx}${CODE_PH_CLOSE}\n`;
   };
 
-  html = html.replace(/```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*?)```/g, pushCodeBlock);
+  source = source.replace(
+    /(?:^|\n)```([a-zA-Z0-9_-]*)[^\n]*\n((?:[\s\S]*?\n)?)[ \t]*```(?=[ \t]*(?:\n|$))/g,
+    pushCodeBlock
+  );
   // Also handle an unclosed streaming code fence at the end of the text
-  html = html.replace(/```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*)$/, pushCodeBlock);
+  source = source.replace(/(?:^|\n)```([a-zA-Z0-9_-]*)[^\n]*\n([\s\S]*)$/, pushCodeBlock);
 
-  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  const lines = source.split('\n');
+  const outBlocks = [];
+  let i = 0;
 
-  html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+  const isHorizontalRule = (line) => /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line);
+  const isHeading = (line) => /^\s*#{1,6}\s+\S.*$/.test(line);
+  const isCodePlaceholder = (line) => /^\uE002\d+\uE003$/.test(line.trim());
+  const isBlockquote = (line) => /^\s*>\s?.*$/.test(line);
+  const matchListItem = (line) => line.match(/^(\s*)([-*+]|\d+\.)\s+(.+)$/);
 
-  html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
 
-  const blocks = html.split(/\n{2,}/);
-  const rendered = blocks
-    .map((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return '';
-      if (
-        trimmed.startsWith('@@AGY_CODE_BLOCK_') ||
-        trimmed.startsWith('<h') ||
-        trimmed.startsWith('<ul') ||
-        trimmed.startsWith('<pre')
+    if (!trimmed) {
+      i++;
+      continue;
+    }
+
+    // 1. Code block placeholder
+    const codeMatch = trimmed.match(/^\uE002(\d+)\uE003$/);
+    if (codeMatch) {
+      outBlocks.push(codePlaceholders[Number(codeMatch[1])] || '');
+      i++;
+      continue;
+    }
+
+    // 2. Horizontal rule (---, ***, ___)
+    if (isHorizontalRule(line)) {
+      outBlocks.push('<hr class="md-hr"/>');
+      i++;
+      continue;
+    }
+
+    // 3. Headings (# ~ ######)
+    const headingMatch = line.match(/^\s*(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = Math.min(6, headingMatch[1].length);
+      outBlocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2].trim())}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    // 4. GFM Table
+    if (line.includes('|') && i + 1 < lines.length && isMarkdownTableDelimiter(lines[i + 1])) {
+      const headerCells = splitMarkdownTableRow(line);
+      const delimCells = splitMarkdownTableRow(lines[i + 1]);
+      const aligns = delimCells.map((c) => {
+        const t = c.trim();
+        if (t.startsWith(':') && t.endsWith(':')) return 'center';
+        if (t.endsWith(':')) return 'right';
+        return 'left';
+      });
+      i += 2;
+      const bodyRows = [];
+      while (
+        i < lines.length &&
+        lines[i].trim() &&
+        lines[i].includes('|') &&
+        !isHorizontalRule(lines[i]) &&
+        !isHeading(lines[i]) &&
+        !isCodePlaceholder(lines[i])
       ) {
-        return trimmed;
+        bodyRows.push(splitMarkdownTableRow(lines[i]));
+        i++;
       }
-      return `<p>${trimmed.replace(/\n/g, '<br/>')}</p>`;
-    })
-    .filter(Boolean)
-    .join('\n');
 
-  return rendered.replace(/@@AGY_CODE_BLOCK_(\d+)@@/g, (_, idxStr) => {
-    return codePlaceholders[Number(idxStr)] || '';
-  });
+      const colCount = Math.max(headerCells.length, aligns.length);
+      const theadHtml =
+        '<thead><tr>' +
+        Array.from({ length: colCount }, (_, colIdx) => {
+          const align = aligns[colIdx] || 'left';
+          const cellText = headerCells[colIdx] ?? '';
+          return `<th style="text-align:${align}">${renderInlineMarkdown(cellText)}</th>`;
+        }).join('') +
+        '</tr></thead>';
+
+      const tbodyHtml =
+        bodyRows.length > 0
+          ? '<tbody>' +
+            bodyRows
+              .map(
+                (row) =>
+                  '<tr>' +
+                  Array.from({ length: colCount }, (_, colIdx) => {
+                    const align = aligns[colIdx] || 'left';
+                    const cellText = row[colIdx] ?? '';
+                    return `<td style="text-align:${align}">${renderInlineMarkdown(cellText)}</td>`;
+                  }).join('') +
+                  '</tr>'
+              )
+              .join('') +
+            '</tbody>'
+          : '';
+
+      outBlocks.push(`<div class="md-table-wrap"><table class="md-table">${theadHtml}${tbodyHtml}</table></div>`);
+      continue;
+    }
+
+    // 5. Blockquote (> ...)
+    if (isBlockquote(line)) {
+      const quoteLines = [];
+      while (i < lines.length && isBlockquote(lines[i])) {
+        quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
+        i++;
+      }
+      outBlocks.push(
+        `<blockquote class="md-blockquote">${quoteLines.map((l) => renderInlineMarkdown(l)).join('<br/>')}</blockquote>`
+      );
+      continue;
+    }
+
+    // 6. Ordered & Unordered Lists (with multi-level nesting & start attribute support)
+    if (matchListItem(line)) {
+      const items = [];
+      while (i < lines.length) {
+        const m = matchListItem(lines[i]);
+        if (m) {
+          const rawIndent = m[1].replace(/\t/g, '  ').length;
+          const marker = m[2];
+          const isOrdered = /^\d+\.$/.test(marker);
+          const type = isOrdered ? 'ol' : 'ul';
+          const startNum = isOrdered ? parseInt(marker, 10) : 1;
+          items.push({
+            indent: rawIndent,
+            type,
+            startNum,
+            html: renderInlineMarkdown(m[3]),
+          });
+          i++;
+        } else if (
+          !lines[i].trim() &&
+          i + 1 < lines.length &&
+          matchListItem(lines[i + 1])
+        ) {
+          // Skip single blank line between list items
+          i++;
+        } else {
+          break;
+        }
+      }
+
+      if (items.length > 0) {
+        let listHtml = '';
+        const stack = [];
+        const openListTag = (type, level, startNum) => {
+          const startAttr = type === 'ol' && Number.isFinite(startNum) && startNum > 1 ? ` start="${startNum}"` : '';
+          return `<${type} class="md-list level-${level}"${startAttr}>`;
+        };
+        for (const item of items) {
+          if (stack.length === 0) {
+            stack.push({ type: item.type, indent: item.indent });
+            listHtml += `${openListTag(item.type, 0, item.startNum)}<li>${item.html}`;
+          } else if (item.indent > stack[stack.length - 1].indent + 1 && stack.length < 4) {
+            stack.push({ type: item.type, indent: item.indent });
+            listHtml += `${openListTag(item.type, stack.length - 1, item.startNum)}<li>${item.html}`;
+          } else {
+            listHtml += '</li>';
+            while (stack.length > 1 && item.indent < stack[stack.length - 1].indent) {
+              const popped = stack.pop();
+              listHtml += `</${popped.type}></li>`;
+            }
+            const top = stack[stack.length - 1];
+            if (top.type !== item.type) {
+              listHtml += `</${top.type}>${openListTag(item.type, stack.length - 1, item.startNum)}`;
+              top.type = item.type;
+            }
+            if (item.indent <= top.indent + 1) {
+              top.indent = item.indent;
+            }
+            listHtml += `<li>${item.html}`;
+          }
+        }
+        listHtml += '</li>';
+        while (stack.length > 0) {
+          const popped = stack.pop();
+          listHtml += `</${popped.type}>`;
+          if (stack.length > 0) {
+            listHtml += '</li>';
+          }
+        }
+        outBlocks.push(listHtml);
+      }
+      continue;
+    }
+
+    // 7. Regular paragraph
+    const paraLines = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !isCodePlaceholder(lines[i]) &&
+      !isHorizontalRule(lines[i]) &&
+      !isHeading(lines[i]) &&
+      !isBlockquote(lines[i]) &&
+      !matchListItem(lines[i]) &&
+      !(lines[i].includes('|') && i + 1 < lines.length && isMarkdownTableDelimiter(lines[i + 1]))
+    ) {
+      paraLines.push(renderInlineMarkdown(lines[i].trim()));
+      i++;
+    }
+    if (paraLines.length > 0) {
+      outBlocks.push(`<p>${paraLines.join('<br/>')}</p>`);
+    }
+  }
+
+  return outBlocks.filter(Boolean).join('\n');
 }
 
 function appendMessage(role, label, initialText = '', screenshotDataUrl = null, meta = {}) {
