@@ -59,7 +59,7 @@ run_doctor() {
 
   # 2. CLI 工具检查
   local cli_found=0
-  for cli in agy claude gemini codex; do
+  for cli in agy claude cursor-agent gemini codex; do
     local cli_path
     cli_path="$(command -v "${cli}" 2>/dev/null || true)"
     if [[ -n "${cli_path}" && -x "${cli_path}" ]]; then
@@ -70,7 +70,7 @@ run_doctor() {
     fi
   done
   if [[ "${cli_found}" -eq 0 ]]; then
-    echo "[FAIL] 本机未检测到任何受支持的 AI CLI (agy / claude / gemini / codex)"
+    echo "[FAIL] 本机未检测到任何受支持的 AI CLI (agy / claude / cursor-agent / gemini / codex)"
     echo "       hint: 请至少安装其中一个 CLI 并确保其在 PATH 中可执行"
     fail_count=$((fail_count + 1))
   fi
@@ -196,10 +196,11 @@ echo "🔍 正在探测本机已安装的 AI CLI 工具..."
 DETECTED_COUNT=0
 DETECTED_AGY="$(command -v agy 2>/dev/null || true)"
 DETECTED_CLAUDE="$(command -v claude 2>/dev/null || true)"
+DETECTED_CURSOR_AGENT="$(command -v cursor-agent 2>/dev/null || true)"
 DETECTED_GEMINI="$(command -v gemini 2>/dev/null || true)"
 DETECTED_CODEX="$(command -v codex 2>/dev/null || true)"
 
-for pair in "agy:${DETECTED_AGY}" "claude:${DETECTED_CLAUDE}" "gemini:${DETECTED_GEMINI}" "codex:${DETECTED_CODEX}"; do
+for pair in "agy:${DETECTED_AGY}" "claude:${DETECTED_CLAUDE}" "cursor-agent:${DETECTED_CURSOR_AGENT}" "gemini:${DETECTED_GEMINI}" "codex:${DETECTED_CODEX}"; do
   cli="${pair%%:*}"
   cli_path="${pair#*:}"
   if [[ -n "${cli_path}" && -x "${cli_path}" ]]; then
@@ -245,6 +246,8 @@ cat > "${PLIST_PATH}" <<EOF
     <string>${DETECTED_AGY}</string>
     <key>CLAUDE_BIN</key>
     <string>${DETECTED_CLAUDE}</string>
+    <key>CURSOR_AGENT_BIN</key>
+    <string>${DETECTED_CURSOR_AGENT}</string>
     <key>GEMINI_BIN</key>
     <string>${DETECTED_GEMINI}</string>
     <key>CODEX_BIN</key>

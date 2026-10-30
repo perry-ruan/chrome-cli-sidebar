@@ -3,7 +3,7 @@
 You are an AI agent (e.g., Antigravity `agy`, Claude Code, Cursor, Gemini CLI, Codex, or Windsurf) setting up **Chrome AI CLI Sidebar (`chrome-cli-sidebar`)** for the user.
 
 **Done =**
-1. The installer (`./install.sh` or the remote `curl` installer) completes and `./install.sh --doctor` reports **`0 fail`** checks (`Node.js >= 18`, at least one AI CLI `agy`/`claude`/`gemini`/`codex` available, extension files intact, and `http://127.0.0.1:18765/health` returns `"ok": true`).
+1. The installer (`./install.sh` or the remote `curl` installer) completes and `./install.sh --doctor` reports **`0 fail`** checks (`Node.js >= 18`, at least one AI CLI `agy`/`claude`/`cursor-agent`/`gemini`/`codex` available, extension files intact, and `http://127.0.0.1:18765/health` returns `"ok": true`).
 2. `chrome://extensions/` has been opened in Google Chrome alongside Finder highlighting the `~/.agy-sidebar-bridge/extension` folder, and the extension directory path is copied to the user's clipboard.
 3. The user confirms the unpacked extension is loaded in Chrome and the status dot next to the sidebar title is **green** (online).
 
@@ -30,7 +30,7 @@ Never use `sudo`. Because Chrome forbids external scripts from silently installi
 - Removes macOS quarantine attributes (`xattr -cr`) added by Slack / WeChat / Feishu / browser downloads.
 - Copies the full `bridge/` and `extension/` directories into `~/.agy-sidebar-bridge/` so macOS TCC (`Operation not permitted` on `~/Downloads` or `~/Desktop`) never blocks the background `launchd` service, and cleaning up `~/Downloads` or running in-sidebar updates always keeps the loaded extension in sync.
 - Detects Node.js (`v18+`) across `nvm`, `fnm`, `volta`, Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`), and standard paths.
-- Detects installed AI CLIs (`agy`, `claude`, `gemini`, `codex`) and injects their full paths into `~/Library/LaunchAgents/com.perry.agy-sidebar-bridge.plist`.
+- Detects installed AI CLIs (`agy`, `claude`, `cursor-agent`, `gemini`, `codex`) and injects their full paths into `~/Library/LaunchAgents/com.perry.agy-sidebar-bridge.plist`.
 - Starts the background service on `http://127.0.0.1:18765` (with automatic `nohup` fallback if `launchctl` is restricted by the host environment).
 - Automatically opens `chrome://extensions/` in Google Chrome, reveals the `extension` directory in Finder, and copies the directory path to the system clipboard.
 

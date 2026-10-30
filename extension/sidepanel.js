@@ -55,6 +55,7 @@ let pastedScreenshotDataUrl = null;
 let availableEngines = [
   { id: 'agy', name: 'AGY', fullName: 'Antigravity CLI (agy)', icon: '✦', available: true, supportsEffort: true },
   { id: 'claude', name: 'Claude Code', fullName: 'Claude Code CLI (claude)', icon: '✴', available: true, supportsEffort: true },
+  { id: 'cursor', name: 'Cursor', fullName: 'Cursor Agent CLI (cursor-agent)', icon: '⌘', available: true, supportsEffort: false },
   { id: 'gemini', name: 'Gemini CLI', fullName: 'Gemini CLI (gemini)', icon: '♊', available: true, supportsEffort: false },
 ];
 let bridgeOnline = false;
@@ -1413,7 +1414,7 @@ async function runAgyTask({ mode = 'chat', userPrompt = '', screenshotDataUrl = 
     appendMessage(
       'ai',
       '系统提示',
-      '本地 Bridge 服务已连接，但未检测到已安装的 AI CLI 工具（`claude` / `agy` / `gemini` / `codex`）。请先在终端安装对应 CLI 工具。'
+      '本地 Bridge 服务已连接，但未检测到已安装的 AI CLI 工具（`claude` / `agy` / `cursor-agent` / `gemini` / `codex`）。请先在终端安装对应 CLI 工具。'
     );
     return;
   }
@@ -2187,6 +2188,7 @@ async function loadModels(forceRefresh = false) {
       const defaultPreferredByEngine = {
         agy: 'gemini-3.8-flash-low',
         claude: 'sonnet',
+        cursor: 'claude-sonnet-5-5-low',
         gemini: 'gemini-2.5-flash',
         codex: 'o4-mini',
       };
