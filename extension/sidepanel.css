@@ -560,6 +560,91 @@ body {
   font-size: 12.5px;
 }
 
+.msg-body .md-alert {
+  padding: 7px 10px;
+}
+
+.msg-body .md-alert-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+
+.msg-body .md-alert-warning,
+.msg-body .md-alert-caution {
+  border-left-color: #d97706;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.msg-body .md-alert-tip {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.msg-body .math-block {
+  margin: 6px 0;
+  padding: 7px 11px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: 'Cambria Math', 'STIX Two Math', 'Latin Modern Math', Georgia, 'Times New Roman', serif;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  text-align: center;
+}
+
+.msg-body .math-inline {
+  font-family: 'Cambria Math', 'STIX Two Math', 'Latin Modern Math', Georgia, 'Times New Roman', serif;
+  font-size: 1.03em;
+  padding: 0 1px;
+  color: var(--text);
+}
+
+.msg-body .math-text,
+.msg-body .math-op {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-style: normal;
+}
+
+.msg-body .math-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 2px;
+  font-size: 0.88em;
+  line-height: 1.1;
+}
+
+.msg-body .math-frac-bar {
+  display: none;
+}
+
+.msg-body .math-num {
+  border-bottom: 1px solid currentColor;
+  padding: 0 3px 1px;
+}
+
+.msg-body .math-den {
+  padding: 1px 3px 0;
+}
+
+.msg-body .math-sqrt {
+  border-top: 1px solid currentColor;
+  padding: 0 2px;
+}
+
+.msg-body .math-overline {
+  text-decoration: overline;
+}
+
+.msg-body .math-underline {
+  text-decoration: underline;
+}
+
 .msg-body .md-table-wrap {
   width: 100%;
   overflow-x: auto;
