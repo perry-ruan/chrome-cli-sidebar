@@ -756,7 +756,7 @@ function renderLatexMath(rawTex, isDisplay = false) {
   if (!rawTex) return '';
   let tex = String(rawTex).trim();
 
-  // 1. Protect escaped literals inside LaTeX before HTML escaping and brace parsing
+  // 1. Protect escaped literals and line breaks (\\) in a single left-to-right pass so \\{ is parsed as \\ + {
   const escTokens = {
     '\\$': '\uE010',
     '\\%': '\uE011',
@@ -767,23 +767,31 @@ function renderLatexMath(rawTex, isDisplay = false) {
     '\\#': '\uE016',
   };
   tex = tex.replace(/[\uE010-\uE01F]/g, '');
-  tex = tex.replace(/\\([$%&_#{}])/g, (m) => escTokens[m] || m);
+  tex = tex.replace(/\\\\|\\([$%&_#{}])/g, (m) => {
+    if (m === '\\\\') return isDisplay ? '\uE017' : ' ';
+    return escTokens[m] || m;
+  });
 
-  // Handle LaTeX line breaks and spacing commands
-  tex = tex.replace(/\\\\/g, isDisplay ? '\uE017' : ' ');
-  tex = tex.replace(/\\(?:quad|qquad)\b/g, '\uE018');
+  // Strip LaTeX environment wrappers (\begin{cases}...\end{cases}, \begin{array}{cc}, aligned, matrix, etc.)
+  tex = tex.replace(/\\begin\s*\{[^{}]*\}(?:\s*\{[^{}]*\}|\s*\[[^\][{}]*\])?/g, '');
+  tex = tex.replace(/\\end\s*\{[^{}]*\}/g, '');
+
+  // Handle LaTeX spacing commands
+  tex = tex.replace(/\\(?:quad|qquad)(?![A-Za-z])/g, '\uE018');
   tex = tex.replace(/\\(?:,|;|:| )\s*/g, ' ');
   tex = tex.replace(/\\!/g, '');
 
   // Strip \left / \right / \big sizing modifiers while preserving their delimiter
   tex = tex.replace(/\\(?:left|right)\s*\./g, '');
   tex = tex.replace(/\\(?:left|right)\s*/g, '');
-  tex = tex.replace(/\\[bB]igg?[lr]?\b\s*/g, '');
+  tex = tex.replace(/\\[bB]igg?[lr]?(?![A-Za-z])\s*/g, '');
 
   // 2. Escape HTML on the entire expression upfront so no untrusted HTML can be injected
   tex = escapeHtml(tex);
+  // Unescaped alignment tabs (&) in environments like cases/aligned become spacing
+  tex = tex.replace(/&amp;/g, ' ');
 
-  // 3.Iteratively resolve innermost brace-grouped LaTeX commands (\text{...}, \mathbf{...}, \frac{a}{b}, _{...}, ^{...})
+  // 3. Iteratively resolve innermost brace-grouped LaTeX commands (\text{...}, \mathbf{...}, \frac{a}{b}, _{...}, ^{...})
   for (let pass = 0; pass < 8; pass++) {
     const prev = tex;
     // \frac{num}{den}, \dfrac{num}{den}, \tfrac{num}{den}
@@ -808,20 +816,26 @@ function renderLatexMath(rawTex, isDisplay = false) {
     tex = tex.replace(/\\(?:mathcal|mathbb|mathfrak|mathsf)\s*\{([^{}]*)\}/g, '<span class="math-sym">$1</span>');
     tex = tex.replace(/\\(?:overline|bar)\s*\{([^{}]*)\}/g, '<span class="math-overline">$1</span>');
     tex = tex.replace(/\\underline\s*\{([^{}]*)\}/g, '<span class="math-underline">$1</span>');
+    // Accents: \hat{x}, \tilde{x}, \vec{x}, \dot{x}, \ddot{x}
+    tex = tex.replace(/\\(?:widehat|hat)\s*\{([^{}]*)\}/g, '$1&#770;');
+    tex = tex.replace(/\\(?:widetilde|tilde)\s*\{([^{}]*)\}/g, '$1&#771;');
+    tex = tex.replace(/\\(?:overrightarrow|vec)\s*\{([^{}]*)\}/g, '$1&#8407;');
+    tex = tex.replace(/\\ddot\s*\{([^{}]*)\}/g, '$1&#776;');
+    tex = tex.replace(/\\dot\s*\{([^{}]*)\}/g, '$1&#775;');
     // Subscripts and superscripts with braces
     tex = tex.replace(/_\s*\{([^{}]*)\}/g, '<sub>$1</sub>');
     tex = tex.replace(/\^\s*\{([^{}]*)\}/g, '<sup>$1</sup>');
     if (tex === prev) break;
   }
 
-  // 4. Upright standard math functions (\min, \max, \log, \ln, \sin, \cos, \lim, etc.)
+  // 4. Upright standard math functions (\min, \max, \log, \ln, \sin, \cos, \lim, etc.) — use (?![A-Za-z]) so \min_x matches
   tex = tex.replace(
-    /\\(min|max|log|ln|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|lim|sup|inf|arg|det|dim|gcd|Pr|mod|bmod)\b/g,
+    /\\(min|max|log|ln|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|lim|sup|inf|arg|det|dim|gcd|Pr|mod|bmod)(?![A-Za-z])/g,
     '<span class="math-op">$1</span>'
   );
 
-  // 5. Greek letters and mathematical symbols
-  tex = tex.replace(/\\([A-Za-z]+)\b/g, (full, cmd) => {
+  // 5. Greek letters and mathematical symbols — use (?![A-Za-z]) instead of \b so \alpha_t, \theta_0, \sum_i match before _
+  tex = tex.replace(/\\([A-Za-z]+)(?![A-Za-z])/g, (full, cmd) => {
     if (Object.prototype.hasOwnProperty.call(LATEX_SYMBOL_MAP, cmd)) {
       return LATEX_SYMBOL_MAP[cmd];
     }
@@ -855,13 +869,31 @@ function isLikelyInlineLatexMath(expr) {
   const trimmed = expr.trim();
   if (!trimmed) return false;
   // Remove \text{...} before checking for prose CJK punctuation so $S_{\text{新}}$ still works
-  const withoutTextCmd = trimmed.replace(/\\(?:text|textrm|mbox)\s*\{[^{}]*\}/g, '');
+  const withoutTextCmd = trimmed.replace(/\\(?:text|textrm|textup|textnormal|mbox|mathrm|operatorname)\s*\{[^{}]*\}/g, '');
   // Reject if it contains CJK prose or fullwidth punctuation outside \text{...} (e.g. "$1.99，旧规则是 $2.99")
   if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(withoutTextCmd)) {
     return false;
   }
   // Reject if it contains Markdown bold/italic markers like "**" across two currency values
   if (/\*\*/.test(withoutTextCmd)) {
+    return false;
+  }
+  // Reject shell variable paths/colons like "PATH:" or "HOME/bin" (require 2+ uppercase chars so $N/2$ and $X: \Omega$ work)
+  if (/^[A-Z_][A-Z0-9_]+[:/]/.test(withoutTextCmd)) {
+    return false;
+  }
+  // Reject English prose phrases (two 3+ letter words separated by space after stripping LaTeX commands, preserving $dx dy$)
+  const withoutLatexCmds = withoutTextCmd.replace(/\\[A-Za-z]+/g, ' ');
+  if (/\b[A-Za-z]{3,}\s+[A-Za-z]{3,}\b/.test(withoutLatexCmds)) {
+    return false;
+  }
+  return true;
+}
+
+function isLikelyParenLatexMath(expr) {
+  if (!isLikelyInlineLatexMath(expr)) return false;
+  // Reject common PCRE regular expression patterns written in prose like \(\d+\) or \(\w+\)
+  if (/\\(?:d|w|s|b|B|D|W|S)(?![A-Za-z])|\(\?:|\(\?=|\(\?!|\*\?|\+\?/.test(expr)) {
     return false;
   }
   return true;
@@ -888,20 +920,20 @@ function renderInlineMarkdown(raw) {
     pushInlinePlaceholder(`<code>${escapeHtml(codeStr)}</code>`)
   );
 
-  // 1b. Extract display math $$...$$ and \[...\] on a single line
-  text = text.replace(/\$\$((?:\\.|[^$\n])+?)\$\$/g, (_, mathExpr) =>
-    pushInlinePlaceholder(renderLatexMath(mathExpr, true))
-  );
-  text = text.replace(/\\\[((?:\\.|[^\n])+?)\\\]/g, (_, mathExpr) =>
+  // 1b. Extract display math $$...$$ on a single line (mutually exclusive branches to prevent ReDoS)
+  text = text.replace(/\$\$((?:\\.|[^$\\\n])+?)\$\$/g, (_, mathExpr) =>
     pushInlinePlaceholder(renderLatexMath(mathExpr, true))
   );
 
-  // 1c. Extract inline math \(...\) and $...$ (supporting escaped \$ inside math, and rejecting currency pairs like "$1.99 ... $2.99")
-  text = text.replace(/\\\(((?:\\.|[^\n])+?)\\\)/g, (_, mathExpr) =>
-    pushInlinePlaceholder(renderLatexMath(mathExpr, false))
-  );
+  // 1c. Extract inline math \(...\) and $...$ (mutually exclusive branches, rejecting shell vars like $PATH:$HOME and currency pairs)
+  text = text.replace(/\\\(((?:\\.|[^\\\n])+?)\\\)/g, (full, mathExpr) => {
+    if (!isLikelyParenLatexMath(mathExpr)) {
+      return full;
+    }
+    return pushInlinePlaceholder(renderLatexMath(mathExpr, false));
+  });
   text = text.replace(
-    /(?<!\\|\$)\$(?!\$|\s)((?:\\.|[^$\\\n])+?)(?<!\s|\\)\$(?!\$|[0-9])/g,
+    /(?<!\\|\$)\$(?!\$|\s)((?:\\.|[^$\\\n])+?)(?<!\s|\\)\$(?![$0-9A-Za-z_])/g,
     (full, mathExpr) => {
       if (!isLikelyInlineLatexMath(mathExpr)) {
         return full;
@@ -910,31 +942,32 @@ function renderInlineMarkdown(raw) {
     }
   );
 
-  // 1d. Unescape common Markdown backslash escapes outside code & math (e.g. \$ -> $, \* -> *, \_ -> _)
-  text = text.replace(/\\([\\$*_{}[\]()#+\-.!%~|])/g, (_, ch) =>
-    pushInlinePlaceholder(escapeHtml(ch))
-  );
-
   // 2. Escape HTML on the remaining text
   text = escapeHtml(text);
 
   // 3. Allow safe line-break tags (<br>, <br/>, <br />) commonly emitted inside Markdown tables
   text = text.replace(/&lt;br\s*\/?&gt;/gi, '<br/>');
 
-  // 4. Helper for Bold + Italic (***text***), Bold (**text**), Strikethrough (~~text~~), Italic (*text*)
-  const applyFormatting = (str) =>
+  // 4. Helper for Bold + Italic (***text***), Bold (**text**), Strikethrough (~~text~~), Italic (*text*), and Markdown backslash escapes
+  const unescapeMarkdownBackslashes = (str) =>
     str
+      .replace(/\\(&(?:lt|gt|amp|quot);)/g, (_, ent) => pushInlinePlaceholder(ent))
+      .replace(/\\([\\$*_{}[\]()#+\-.!%~|])/g, (_, ch) => pushInlinePlaceholder(ch));
+
+  const applyFormatting = (str) =>
+    unescapeMarkdownBackslashes(str)
       .replace(/\*\*\*([^*\n]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
       .replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>')
       .replace(/~~([^\n]+?)~~/g, '<del>$1</del>')
       .replace(/(^|[^*A-Za-z0-9])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![*A-Za-z0-9])/g, '$1<em>$2</em>');
 
-  // 5. Parse Markdown links [label](https://...) safely
-  text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (full, label, rawUrl) => {
+  // 5. Parse Markdown links [label](https://...) safely before unescaping backslashes in prose
+  text = text.replace(/(?<!\\)\[((?:\\.|[^\]\n])+)\]\(([^)\s]+)\)/g, (full, label, rawUrl) => {
     if (/[\uE000-\uE003]/.test(rawUrl)) {
       return full;
     }
     const cleanUrl = rawUrl
+      .replace(/\\([\\$*_{}[\]()#+\-.!%~|])/g, '$1')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
@@ -1016,16 +1049,46 @@ function renderMarkdown(md) {
   // Also handle an unclosed streaming code fence at the end of the text
   source = source.replace(/(?:^|\n)```([a-zA-Z0-9_-]*)[^\n]*\n([\s\S]*)$/, pushCodeBlock);
 
-  // Extract multi-line display math blocks $$\n...\n$$ and \[\n...\n\]
-  const pushMathBlock = (_, mathBody) => {
-    const idx = codePlaceholders.length;
-    codePlaceholders.push(renderLatexMath(mathBody, true));
-    return `\n${CODE_PH_OPEN}${idx}${CODE_PH_CLOSE}\n`;
-  };
-  source = source.replace(/(?:^|\n)[ \t]*\$\$\s*\n([\s\S]*?)\n[ \t]*\$\$(?=[ \t]*(?:\n|$))/g, pushMathBlock);
-  source = source.replace(/(?:^|\n)[ \t]*\\\[\s*\n([\s\S]*?)\n[ \t]*\\\](?=[ \t]*(?:\n|$))/g, pushMathBlock);
+  // Extract multi-line display math blocks $$\n...\n$$ and \[\n...\n\] via O(N) line scan (avoids quadratic backtracking, preserves list indentation, and never swallows code placeholders)
+  const rawLines = source.split('\n');
+  const lines = [];
+  let noMoreDollarClose = false;
+  let noMoreBracketClose = false;
+  for (let li = 0; li < rawLines.length; li++) {
+    const openMatch = rawLines[li].match(/^([ \t]*)(?:\$\$|\\\[)[ \t]*$/);
+    if (openMatch) {
+      const indent = openMatch[1] || '';
+      const isDollar = rawLines[li].trim() === '$$';
+      if ((isDollar && !noMoreDollarClose) || (!isDollar && !noMoreBracketClose)) {
+        const closeRe = isDollar ? /^[ \t]*\$\$[ \t]*$/ : /^[ \t]*\\\][ \t]*$/;
+        let closeIdx = -1;
+        let hitCodeBlock = false;
+        for (let lj = li + 1; lj < rawLines.length; lj++) {
+          if (/^\uE002\d+\uE003$/.test(rawLines[lj].trim())) {
+            hitCodeBlock = true;
+            break;
+          }
+          if (closeRe.test(rawLines[lj])) {
+            closeIdx = lj;
+            break;
+          }
+        }
+        if (closeIdx !== -1) {
+          const mathBody = rawLines.slice(li + 1, closeIdx).join('\n');
+          const idx = codePlaceholders.length;
+          codePlaceholders.push(renderLatexMath(mathBody, true));
+          lines.push(`${indent}${CODE_PH_OPEN}${idx}${CODE_PH_CLOSE}`);
+          li = closeIdx;
+          continue;
+        } else if (!hitCodeBlock) {
+          if (isDollar) noMoreDollarClose = true;
+          else noMoreBracketClose = true;
+        }
+      }
+    }
+    lines.push(rawLines[li]);
+  }
 
-  const lines = source.split('\n');
   const outBlocks = [];
   let i = 0;
 
@@ -1034,8 +1097,12 @@ function renderMarkdown(md) {
   const isCodePlaceholder = (line) => /^\uE002\d+\uE003$/.test(line.trim());
   const isBlockquote = (line) => /^\s*>\s?.*$/.test(line);
   const matchListItem = (line) => line.match(/^(\s*)([-*+]|\d+\.)\s+(.+)$/);
-  const matchStandaloneDisplayMath = (line) =>
-    line.trim().match(/^(?:\$\$((?:\\.|[^$\n])+?)\$\$|\\\[((?:\\.|[^\n])+?)\\\])$/);
+  const matchStandaloneDisplayMath = (line) => {
+    const m = line.trim().match(/^(?:\$\$((?:\\.|[^$\\\n])+?)\$\$|\\\[((?:\\.|[^\\\n])+?)\\\])$/);
+    if (!m) return null;
+    if (m[2] !== undefined && /^\s*\d+\s*$/.test(m[2])) return null;
+    return m;
+  };
 
   while (i < lines.length) {
     const line = lines[i];
@@ -1193,13 +1260,15 @@ function renderMarkdown(md) {
           /^\s+\S/.test(lines[i]) &&
           !isHorizontalRule(lines[i]) &&
           !isHeading(lines[i]) &&
-          !isCodePlaceholder(lines[i]) &&
           !isBlockquote(lines[i]) &&
           !(lines[i].includes('|') && i + 1 < lines.length && isMarkdownTableDelimiter(lines[i + 1]))
         ) {
-          // Indented continuation line inside the current list item (e.g. indented $$...$$ formula or wrapped text)
+          // Indented continuation line inside the current list item (e.g. indented $$...$$ formula, multi-line math placeholder, or wrapped text)
+          const contCodePh = lines[i].trim().match(/^\uE002(\d+)\uE003$/);
           const contMath = matchStandaloneDisplayMath(lines[i]);
-          if (contMath) {
+          if (contCodePh) {
+            items[items.length - 1].html += codePlaceholders[Number(contCodePh[1])] || '';
+          } else if (contMath) {
             items[items.length - 1].html += renderLatexMath(contMath[1] || contMath[2], true);
           } else {
             items[items.length - 1].html += `<br/>${renderInlineMarkdown(lines[i].trim())}`;
