@@ -2515,86 +2515,95 @@ if (workspaceSelectEl) {
 }
 
 let loadModelsSeq = 0;
+let lastModelOptionsSignature = '';
 
-async function loadModels(forceRefresh = false) {
+async function loadModels(forceRefresh = false, { silent = false, waitInFlight = false } = {}) {
   const mySeq = ++loadModelsSeq;
   const targetEngine = currentEngine;
   try {
-    if (forceRefresh) {
+    if (forceRefresh && !silent) {
       refreshModelsBtn.disabled = true;
       refreshModelsBtn.textContent = '…';
       await checkBridgeHealth(true, { skipModelReload: true });
     }
-    const { selectedModelsByEngine = {}, selectedModel, selectedEffort } =
-      await chrome.storage.local.get([
-        'selectedModelsByEngine',
-        'selectedModel',
-        'selectedEffort',
-      ]);
+    const { selectedEffort } = await chrome.storage.local.get(['selectedEffort']);
     if (mySeq !== loadModelsSeq || currentEngine !== targetEngine) return;
     if (selectedEffort) {
       effortSelectEl.value = selectedEffort;
     }
 
+    const querySuffix = forceRefresh ? '&refresh=1' : waitInFlight ? '&wait=1' : '';
     const res = await fetch(
-      `${BRIDGE_URL}/models?engine=${encodeURIComponent(targetEngine)}${forceRefresh ? '&refresh=1' : ''}`
+      `${BRIDGE_URL}/models?engine=${encodeURIComponent(targetEngine)}${querySuffix}`
     );
     const data = await res.json();
     if (mySeq !== loadModelsSeq || currentEngine !== targetEngine) return;
     const models = Array.isArray(data?.models) ? data.models : [];
 
     if (models.length > 0) {
-      const savedForEngine =
-        selectedModelsByEngine[targetEngine] !== undefined
-          ? selectedModelsByEngine[targetEngine]
-          : targetEngine === 'agy'
-            ? selectedModel
-            : undefined;
+      const nextSignature = `${targetEngine}::${models.map((m) => `${m.id}:${m.label}:${m.group || ''}`).join('|')}`;
+      if (!silent || nextSignature !== lastModelOptionsSignature) {
+        lastModelOptionsSignature = nextSignature;
+        const { selectedModelsByEngine = {}, selectedModel } =
+          await chrome.storage.local.get(['selectedModelsByEngine', 'selectedModel']);
+        if (mySeq !== loadModelsSeq || currentEngine !== targetEngine) return;
 
-      modelSelectEl.innerHTML = '';
+        const savedForEngine =
+          selectedModelsByEngine[targetEngine] !== undefined
+            ? selectedModelsByEngine[targetEngine]
+            : targetEngine === 'agy'
+              ? selectedModel
+              : undefined;
 
-      const groups = new Map();
-      for (const m of models) {
-        const g = m.group || '模型';
-        if (!groups.has(g)) groups.set(g, []);
-        groups.get(g).push(m);
-      }
+        modelSelectEl.innerHTML = '';
 
-      for (const [groupName, items] of groups.entries()) {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = groupName;
-        for (const item of items) {
-          const opt = document.createElement('option');
-          opt.value = item.id;
-          opt.textContent = item.label;
-          optgroup.appendChild(opt);
+        const groups = new Map();
+        for (const m of models) {
+          const g = m.group || '模型';
+          if (!groups.has(g)) groups.set(g, []);
+          groups.get(g).push(m);
         }
-        modelSelectEl.appendChild(optgroup);
-      }
 
-      const defaultPreferredByEngine = {
-        agy: 'gemini-3.8-flash-low',
-        claude: 'sonnet',
-        cursor: 'claude-sonnet-5-5-low',
-        gemini: 'gemini-2.5-flash',
-        codex: 'o4-mini',
-      };
+        for (const [groupName, items] of groups.entries()) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = groupName;
+          for (const item of items) {
+            const opt = document.createElement('option');
+            opt.value = item.id;
+            opt.textContent = item.label;
+            optgroup.appendChild(opt);
+          }
+          modelSelectEl.appendChild(optgroup);
+        }
 
-      if (savedForEngine !== undefined && [...modelSelectEl.options].some((o) => o.value === savedForEngine)) {
-        modelSelectEl.value = savedForEngine;
-      } else {
-        const pref = defaultPreferredByEngine[currentEngine] || '';
-        if ([...modelSelectEl.options].some((o) => o.value === pref)) {
-          modelSelectEl.value = pref;
+        const defaultPreferredByEngine = {
+          agy: 'gemini-3.8-flash-low',
+          claude: 'sonnet',
+          cursor: 'claude-sonnet-5-5-low',
+          gemini: 'gemini-3.5-flash',
+          codex: 'o4-mini',
+        };
+
+        if (savedForEngine !== undefined && [...modelSelectEl.options].some((o) => o.value === savedForEngine)) {
+          modelSelectEl.value = savedForEngine;
         } else {
-          modelSelectEl.selectedIndex = 0;
+          const pref = defaultPreferredByEngine[currentEngine] || '';
+          if ([...modelSelectEl.options].some((o) => o.value === pref)) {
+            modelSelectEl.value = pref;
+          } else {
+            modelSelectEl.selectedIndex = 0;
+          }
         }
       }
+    }
+
+    if (!forceRefresh && !waitInFlight && data?.refreshing) {
+      loadModels(false, { silent: true, waitInFlight: true }).catch(() => {});
     }
   } catch {
     // ignore if offline
   } finally {
-    if (forceRefresh) {
+    if (forceRefresh && !silent) {
       refreshModelsBtn.disabled = false;
       refreshModelsBtn.textContent = '↻';
     }

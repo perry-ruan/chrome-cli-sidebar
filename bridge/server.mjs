@@ -8,6 +8,7 @@ import {
   mkdirSync,
   accessSync,
   readdirSync,
+  readFileSync,
   statSync,
   realpathSync,
   constants as fsConstants,
@@ -25,6 +26,7 @@ const SCREENSHOT_DIR = path.join(DATA_ROOT, '.tmp-screenshots');
 const SESSIONS_DIR = path.join(DATA_ROOT, '.sessions');
 const SESSIONS_FILE = path.join(SESSIONS_DIR, 'sessions.json');
 const LEGACY_SESSIONS_FILE = path.join(PROJECT_ROOT, '.sessions', 'sessions.json');
+const MODELS_CACHE_FILE = path.join(DATA_ROOT, '.models-cache.json');
 const NOTES_DIR = path.join(DATA_ROOT, 'notes');
 const DEFAULT_CWD_DIR = path.join(DATA_ROOT, 'workspace-sandbox');
 
@@ -376,25 +378,44 @@ const DEFAULT_MODELS_BY_ENGINE = {
     { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low · 极速推荐)', group: 'Gemini 3.8 Flash' },
     { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)', group: 'Gemini 3.8 Flash' },
     { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', group: 'Gemini 3.8 Flash' },
+    { id: 'gemini-4-carbon-low', label: 'Gemini 4 Carbon (Low)', group: 'Gemini 4 Carbon' },
+    { id: 'gemini-4-carbon-medium', label: 'Gemini 4 Carbon (Medium)', group: 'Gemini 4 Carbon' },
+    { id: 'gemini-4-carbon-high', label: 'Gemini 4 Carbon (High)', group: 'Gemini 4 Carbon' },
+    { id: 'gemini-4-hydrogen-low', label: 'Gemini 4 Hydrogen (Low)', group: 'Gemini 4 Hydrogen' },
+    { id: 'gemini-4-hydrogen-medium', label: 'Gemini 4 Hydrogen (Medium)', group: 'Gemini 4 Hydrogen' },
+    { id: 'gemini-4-hydrogen-high', label: 'Gemini 4 Hydrogen (High)', group: 'Gemini 4 Hydrogen' },
     { id: 'gemini-4-argon-low', label: 'Gemini 4 Argon (Low)', group: 'Gemini 4 Argon' },
     { id: 'gemini-4-argon-medium', label: 'Gemini 4 Argon (Medium)', group: 'Gemini 4 Argon' },
     { id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)', group: 'Gemini 4 Argon' },
     { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', group: 'Gemini 3.1 Pro' },
     { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', group: 'Gemini 3.1 Pro' },
-    { id: 'claude-sonnet-5-5-low', label: 'Claude Sonnet 5.5 (Low)', group: 'Claude 5.5' },
-    { id: 'claude-sonnet-5-5-medium', label: 'Claude Sonnet 5.5 (Medium)', group: 'Claude 5.5' },
-    { id: 'claude-sonnet-5-5-high', label: 'Claude Sonnet 5.5 (High)', group: 'Claude 5.5' },
-    { id: 'claude-opus-5-5-low', label: 'Claude Opus 5.5 (Low)', group: 'Claude 5.5' },
-    { id: 'claude-opus-5-5-medium', label: 'Claude Opus 5.5 (Medium)', group: 'Claude 5.5' },
-    { id: 'claude-opus-5-5-high', label: 'Claude Opus 5.5 (High)', group: 'Claude 5.5' },
+    { id: 'claude-sonnet-5-5-low', label: 'Claude Sonnet 5.5 (Low)', group: 'Claude Sonnet 5.5' },
+    { id: 'claude-sonnet-5-5-medium', label: 'Claude Sonnet 5.5 (Medium)', group: 'Claude Sonnet 5.5' },
+    { id: 'claude-sonnet-5-5-high', label: 'Claude Sonnet 5.5 (High)', group: 'Claude Sonnet 5.5' },
+    { id: 'claude-opus-5-5-low', label: 'Claude Opus 5.5 (Low)', group: 'Claude Opus 5.5' },
+    { id: 'claude-opus-5-5-medium', label: 'Claude Opus 5.5 (Medium)', group: 'Claude Opus 5.5' },
+    { id: 'claude-opus-5-5-high', label: 'Claude Opus 5.5 (High)', group: 'Claude Opus 5.5' },
+    { id: 'gemini-pro-orchestrator', label: 'Orchestrator', group: '其他模型' },
   ],
   claude: [
     { id: '', label: '默认模型 (Claude Default)', group: '默认' },
     { id: 'sonnet', label: 'Claude Sonnet (Latest · 极速推荐)', group: 'Claude 官方别名' },
     { id: 'opus', label: 'Claude Opus (Latest · 深度推理)', group: 'Claude 官方别名' },
+    { id: 'fable', label: 'Claude Fable (Latest)', group: 'Claude 官方别名' },
     { id: 'haiku', label: 'Claude Haiku (Latest · 轻量秒回)', group: 'Claude 官方别名' },
-    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', group: '指定版本' },
-    { id: 'claude-opus-4-5', label: 'Claude Opus 4.5', group: '指定版本' },
+    { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', group: 'Claude Sonnet' },
+    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', group: 'Claude Sonnet' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', group: 'Claude Sonnet' },
+    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', group: 'Claude Sonnet' },
+    { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', group: 'Claude Opus' },
+    { id: 'claude-opus-5', label: 'Claude Opus 5', group: 'Claude Opus' },
+    { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', group: 'Claude Opus' },
+    { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', group: 'Claude Opus' },
+    { id: 'claude-opus-4-5', label: 'Claude Opus 4.5', group: 'Claude Opus' },
+    { id: 'claude-fable-5-2', label: 'Claude Fable 5.2', group: 'Claude Fable' },
+    { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', group: 'Claude Fable' },
+    { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', group: 'Claude Haiku' },
+    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', group: 'Claude Haiku' },
   ],
   cursor: [
     { id: '', label: '默认模型 (Cursor Auto · 智能路由)', group: '默认' },
@@ -404,17 +425,27 @@ const DEFAULT_MODELS_BY_ENGINE = {
     { id: 'claude-opus-5-5-low', label: 'Claude Opus 5.5 (Low)', group: 'Claude' },
     { id: 'claude-opus-5-5-medium', label: 'Claude Opus 5.5 (Medium)', group: 'Claude' },
     { id: 'claude-opus-5-5-high', label: 'Claude Opus 5.5 (High)', group: 'Claude' },
+    { id: 'claude-fable-5-2-low', label: 'Claude Fable 5.2 (Low)', group: 'Claude' },
     { id: 'gpt-5.3-codex-low', label: 'Codex 5.3 (Low)', group: 'OpenAI / Codex' },
     { id: 'gpt-5.3-codex-medium', label: 'Codex 5.3 (Medium)', group: 'OpenAI / Codex' },
     { id: 'gpt-5.3-codex-high', label: 'Codex 5.3 (High)', group: 'OpenAI / Codex' },
+    { id: 'gemini-4-carbon-low', label: 'Gemini 4 Carbon (Low)', group: 'Gemini' },
+    { id: 'gemini-4-hydrogen-low', label: 'Gemini 4 Hydrogen (Low)', group: 'Gemini' },
     { id: 'gemini-4-argon-low', label: 'Gemini 4 Argon (Low)', group: 'Gemini' },
     { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)', group: 'Gemini' },
     { id: 'composer-2.5-fast', label: 'Composer 2.5 Fast', group: 'Composer' },
   ],
   gemini: [
     { id: '', label: '默认模型 (Gemini Default)', group: '默认' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (极速推荐)', group: 'Gemini 2.5' },
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (深度推理)', group: 'Gemini 2.5' },
+    { id: 'auto', label: 'Auto (智能路由 · Gemini 3)', group: '默认' },
+    { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (极速推荐)', group: 'Gemini 3 系列' },
+    { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)', group: 'Gemini 3 系列' },
+    { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro (Preview)', group: 'Gemini 3 系列' },
+    { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Preview)', group: 'Gemini 3 系列' },
+    { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', group: 'Gemini 3 系列' },
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', group: 'Gemini 2.5 系列' },
+    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', group: 'Gemini 2.5 系列' },
+    { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', group: 'Gemini 2.5 系列' },
   ],
   codex: [
     { id: '', label: '默认模型 (Codex Default)', group: '默认' },
@@ -423,13 +454,182 @@ const DEFAULT_MODELS_BY_ENGINE = {
   ],
 };
 
-let cachedAgyModels = null;
-let agyModelsInFlight = null;
-let lastAgyModelsAttemptAt = 0;
+const MODEL_CACHE_TTL_MS = 15 * 60 * 1000;
+const MODEL_RETRY_COOLDOWN_MS = 60_000;
+const CLI_MODEL_FETCH_TIMEOUT_MS = 15_000;
+const MAX_MODEL_STDOUT_BYTES = 256 * 1024;
+const REMOTE_MODEL_LIST_ENGINES = new Set(['agy', 'cursor']);
 
-let cachedCursorModels = null;
-let cursorModelsInFlight = null;
-let lastCursorModelsAttemptAt = 0;
+const cachedModelsByEngine = {
+  agy: null,
+  cursor: null,
+  claude: null,
+  gemini: null,
+};
+const modelsMetaByEngine = {
+  agy: { updatedAt: 0, binRealPath: '', binMtimeMs: 0, settingsMtimeMs: 0 },
+  cursor: { updatedAt: 0, binRealPath: '', binMtimeMs: 0, settingsMtimeMs: 0 },
+  claude: { updatedAt: 0, binRealPath: '', binMtimeMs: 0, settingsMtimeMs: 0 },
+  gemini: { updatedAt: 0, binRealPath: '', binMtimeMs: 0, settingsMtimeMs: 0 },
+};
+const modelsInFlightByEngine = {
+  agy: null,
+  cursor: null,
+  claude: null,
+  gemini: null,
+};
+const lastModelsAttemptAtByEngine = {
+  agy: 0,
+  cursor: 0,
+  claude: 0,
+  gemini: 0,
+};
+
+function isDynamicModelEngine(engineId) {
+  return typeof engineId === 'string' && Object.hasOwn(cachedModelsByEngine, engineId);
+}
+
+function getEngineSettingsMtimeMs(engineId) {
+  if (!HOME_DIR) return 0;
+  try {
+    if (engineId === 'claude') {
+      const p = path.join(HOME_DIR, '.claude', 'settings.json');
+      return existsSync(p) ? Math.floor(statSync(p).mtimeMs || 0) : 0;
+    }
+    if (engineId === 'gemini') {
+      const p = path.join(HOME_DIR, '.gemini', 'settings.json');
+      return existsSync(p) ? Math.floor(statSync(p).mtimeMs || 0) : 0;
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
+function getBinaryMeta(binPath, engineId = '') {
+  const settingsMtimeMs = engineId ? getEngineSettingsMtimeMs(engineId) : 0;
+  if (!binPath) return { realPath: '', mtimeMs: 0, settingsMtimeMs };
+  try {
+    const realPath = realpathSync(binPath);
+    const stat = statSync(realPath);
+    return { realPath, mtimeMs: Math.floor(stat.mtimeMs || 0), settingsMtimeMs };
+  } catch {
+    return { realPath: binPath, mtimeMs: 0, settingsMtimeMs };
+  }
+}
+
+function sanitizeCachedModelList(list) {
+  if (!Array.isArray(list)) return null;
+  const valid = [];
+  const seen = new Set();
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    if (typeof item.id !== 'string' || typeof item.label !== 'string') continue;
+    const id = item.id.trim();
+    const label = item.label.trim();
+    if (!label || (id !== '' && !sanitizeCliArgToken(id))) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    valid.push({
+      id,
+      label,
+      group: typeof item.group === 'string' && item.group.trim() ? item.group.trim() : '模型',
+    });
+  }
+  return valid.length > 1 ? valid : null;
+}
+
+function loadModelsDiskCacheSync() {
+  try {
+    if (!existsSync(MODELS_CACHE_FILE)) return;
+    const raw = readFileSync(MODELS_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    const engines = parsed?.engines;
+    if (!engines || typeof engines !== 'object') return;
+    for (const engId of Object.keys(cachedModelsByEngine)) {
+      const entry = Object.hasOwn(engines, engId) ? engines[engId] : null;
+      const validModels = sanitizeCachedModelList(entry?.models);
+      if (!validModels) continue;
+      const engInfo = getEngineInfo(engId);
+      if (!engInfo || engInfo.id !== engId || !engInfo.available || !engInfo.binPath) continue;
+      const binMeta = getBinaryMeta(engInfo.binPath, engId);
+      if (
+        !binMeta.realPath ||
+        (entry.binRealPath && entry.binRealPath !== binMeta.realPath) ||
+        (binMeta.mtimeMs > 0 && entry.binMtimeMs > 0 && entry.binMtimeMs !== binMeta.mtimeMs) ||
+        (Number(entry.settingsMtimeMs || 0) !== binMeta.settingsMtimeMs)
+      ) {
+        continue;
+      }
+      cachedModelsByEngine[engId] = validModels;
+      modelsMetaByEngine[engId] = {
+        updatedAt: Number(entry.updatedAt) || 0,
+        binRealPath: entry.binRealPath || binMeta.realPath || '',
+        binMtimeMs: Number(entry.binMtimeMs) || binMeta.mtimeMs || 0,
+        settingsMtimeMs: binMeta.settingsMtimeMs,
+      };
+    }
+  } catch {
+    // ignore corrupt disk cache
+  }
+}
+
+let modelsCacheWriteChain = Promise.resolve();
+function saveModelsDiskCache(engineId, models, binPath, precomputedBinMeta = null) {
+  const binMeta = precomputedBinMeta || getBinaryMeta(binPath, engineId);
+  cachedModelsByEngine[engineId] = models;
+  modelsMetaByEngine[engineId] = {
+    updatedAt: Date.now(),
+    binRealPath: binMeta.realPath,
+    binMtimeMs: binMeta.mtimeMs,
+    settingsMtimeMs: binMeta.settingsMtimeMs,
+  };
+  const writeTask = async () => {
+    const payload = { version: 1, engines: {} };
+    for (const id of Object.keys(cachedModelsByEngine)) {
+      if (Array.isArray(cachedModelsByEngine[id]) && cachedModelsByEngine[id].length > 1) {
+        payload.engines[id] = {
+          models: cachedModelsByEngine[id],
+          ...modelsMetaByEngine[id],
+        };
+      }
+    }
+    const tmp = `${MODELS_CACHE_FILE}.tmp.${process.pid}.${Date.now()}`;
+    try {
+      await fs.writeFile(tmp, JSON.stringify(payload, null, 2), 'utf8');
+      await fs.rename(tmp, MODELS_CACHE_FILE);
+    } catch {
+      await fs.unlink(tmp).catch(() => {});
+    }
+  };
+  modelsCacheWriteChain = modelsCacheWriteChain.then(writeTask, writeTask).catch(() => {});
+}
+
+function isEngineModelsCacheStale(engineId, precomputedBinMeta = null) {
+  if (!isDynamicModelEngine(engineId)) return false;
+  const models = cachedModelsByEngine[engineId];
+  if (!Array.isArray(models) || models.length <= 1) return true;
+  const meta = modelsMetaByEngine[engineId];
+  const engInfo = getEngineInfo(engineId);
+  if (!engInfo || engInfo.id !== engineId || !engInfo.available || !engInfo.binPath) return false;
+  const binMeta = precomputedBinMeta || getBinaryMeta(engInfo.binPath, engineId);
+  if (
+    binMeta.realPath &&
+    meta.binRealPath &&
+    (meta.binRealPath !== binMeta.realPath ||
+      (binMeta.mtimeMs > 0 && meta.binMtimeMs > 0 && meta.binMtimeMs !== binMeta.mtimeMs))
+  ) {
+    return true;
+  }
+  if ((meta.settingsMtimeMs || 0) !== binMeta.settingsMtimeMs) {
+    return true;
+  }
+  // File-backed local bundle engines (claude, gemini) only change when binary or settings mtime changes
+  if (!REMOTE_MODEL_LIST_ENGINES.has(engineId)) {
+    return false;
+  }
+  return Date.now() - (meta.updatedAt || 0) > MODEL_CACHE_TTL_MS;
+}
 
 function stripTerminalAndZeroWidth(str) {
   return String(str || '')
@@ -437,11 +637,24 @@ function stripTerminalAndZeroWidth(str) {
     .replace(/[\u200B-\u200F\u2060\uFEFF]/g, '');
 }
 
-function inferAgyGroup(id) {
-  if (id.startsWith('gemini-4')) return 'Gemini 4 Argon';
-  if (id.startsWith('gemini-3.8')) return 'Gemini 3.8 Flash';
-  if (id.startsWith('gemini-3.7')) return 'Gemini 3.7 Flash';
-  if (id.startsWith('gemini-3.1')) return 'Gemini 3.1 Pro';
+function inferAgyGroup(id, label = '') {
+  if (id === 'gemini-pro-orchestrator' || /^orchestrator$/i.test(String(label || '').trim())) {
+    return '其他模型';
+  }
+  const cleanLabel = String(label || '')
+    .replace(/\s*\((?:Low|Medium|High|Extra High|Minimal|Max|Fast|Thinking)[^)]*\)\s*$/i, '')
+    .trim();
+  if (cleanLabel && /^(?:Gemini|Claude|GPT|O\d)\b/i.test(cleanLabel)) {
+    return cleanLabel;
+  }
+  const geminiTierMatch = id.match(/^gemini-(\d+(?:\.\d+)?-[a-z0-9]+)/i);
+  if (geminiTierMatch) {
+    return `Gemini ${geminiTierMatch[1]
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ')}`;
+  }
+  if (id.startsWith('gemini-')) return 'Gemini';
   if (id.startsWith('claude-')) return 'Claude';
   return '其他模型';
 }
@@ -449,188 +662,574 @@ function inferAgyGroup(id) {
 function inferCursorGroup(id) {
   if (id === 'auto' || id === 'default') return '默认';
   if (id.startsWith('claude-')) return 'Claude';
-  if (id.startsWith('gpt-') || id.startsWith('o3') || id.startsWith('o4') || id.includes('codex')) {
+  if (id.startsWith('gpt-') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4') || id.includes('codex')) {
     return 'OpenAI / Codex';
   }
   if (id.startsWith('gemini-')) return 'Gemini';
   if (id.startsWith('composer')) return 'Composer';
-  if (id.startsWith('grok')) return 'Grok';
+  if (id.startsWith('grok') || id.startsWith('cursor-grok')) return 'Grok';
+  if (id.startsWith('muse-')) return 'Muse';
   if (id.startsWith('kimi') || id.startsWith('glm') || id.startsWith('deepseek') || id.startsWith('qwen')) {
     return '国产 / 开源模型';
   }
   return '其他模型';
 }
 
+function runModelListCliCommand(binPath, args) {
+  return new Promise((resolve) => {
+    const child = spawn(binPath, args, {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...process.env,
+        PATH: buildEnhancedPath(),
+      },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+    let out = '';
+    let outBytes = 0;
+    let settled = false;
+    let killTimer = null;
+
+    const finish = (code, stdoutText) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      resolve({ code, stdout: stdoutText });
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGTERM');
+      } catch {}
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          try {
+            child.kill('SIGKILL');
+          } catch {}
+        }
+        finish(-1, '');
+      }, 2000);
+      killTimer.unref();
+    }, CLI_MODEL_FETCH_TIMEOUT_MS);
+
+    child.stdout.on('data', (chunk) => {
+      if (outBytes >= MAX_MODEL_STDOUT_BYTES) return;
+      const slice =
+        outBytes + chunk.length > MAX_MODEL_STDOUT_BYTES
+          ? chunk.subarray(0, MAX_MODEL_STDOUT_BYTES - outBytes)
+          : chunk;
+      outBytes += slice.length;
+      out += slice.toString('utf8');
+    });
+
+    child.on('close', (code) => {
+      finish(code ?? -1, out);
+    });
+
+    child.on('error', () => {
+      finish(-1, '');
+    });
+  });
+}
+
 function fetchAgyModels(forceRefresh = false) {
-  if (cachedAgyModels && !forceRefresh) {
-    return Promise.resolve(cachedAgyModels);
-  }
-  if (agyModelsInFlight) {
-    return agyModelsInFlight;
-  }
-  const now = Date.now();
-  if (!forceRefresh && !cachedAgyModels && now - lastAgyModelsAttemptAt < 30_000) {
-    return Promise.resolve(DEFAULT_MODELS_BY_ENGINE.agy);
-  }
   const agyInfo = getEngineInfo('agy');
   if (!agyInfo || agyInfo.id !== 'agy' || !agyInfo.available || !agyInfo.binPath) {
     return Promise.resolve(DEFAULT_MODELS_BY_ENGINE.agy);
   }
-  lastAgyModelsAttemptAt = now;
+  const binMeta = getBinaryMeta(agyInfo.binPath, 'agy');
+  if (cachedModelsByEngine.agy && !forceRefresh && !isEngineModelsCacheStale('agy', binMeta)) {
+    return Promise.resolve(cachedModelsByEngine.agy);
+  }
+  if (modelsInFlightByEngine.agy) {
+    return modelsInFlightByEngine.agy;
+  }
+  const now = Date.now();
+  if (!forceRefresh && now - lastModelsAttemptAtByEngine.agy < MODEL_RETRY_COOLDOWN_MS) {
+    return Promise.resolve(cachedModelsByEngine.agy || DEFAULT_MODELS_BY_ENGINE.agy);
+  }
+  lastModelsAttemptAtByEngine.agy = now;
 
-  agyModelsInFlight = new Promise((resolve) => {
-    const child = spawn(agyInfo.binPath, ['models'], {
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        PATH: buildEnhancedPath(),
-      },
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-
-    let out = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      resolve(cachedAgyModels || DEFAULT_MODELS_BY_ENGINE.agy);
-    }, 6000);
-
-    child.stdout.on('data', (chunk) => {
-      out += chunk.toString('utf8');
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        const clean = stripTerminalAndZeroWidth(out).replace(/\r/g, '\n');
-        const parsed = [{ id: '', label: '默认模型 (AGY Default)', group: '默认' }];
-        const seen = new Set(['']);
-        for (const rawLine of clean.split('\n')) {
-          const line = rawLine.replace(/^.*Fetching available models\.\.\.\s*/, '').trim();
-          const m = line.match(/^([a-z0-9._-]+)\s{2,}(.+)$/i);
-          if (m) {
-            const id = m[1].trim();
-            const label = m[2].trim();
-            if (!seen.has(id)) {
-              seen.add(id);
-              parsed.push({ id, label, group: inferAgyGroup(id) });
-            }
+  modelsInFlightByEngine.agy = (async () => {
+    const { code, stdout } = await runModelListCliCommand(agyInfo.binPath, ['models']);
+    if (code === 0 && stdout) {
+      const clean = stripTerminalAndZeroWidth(stdout).replace(/\r/g, '\n');
+      const parsed = [{ id: '', label: '默认模型 (AGY Default)', group: '默认' }];
+      const seen = new Set(['']);
+      for (const rawLine of clean.split('\n')) {
+        const line = rawLine.replace(/^.*Fetching available models\.\.\.\s*/, '').trim();
+        const m = line.match(/^([a-z0-9._-]+)\s{2,}(.+)$/i);
+        if (m) {
+          const id = m[1].trim();
+          const rawLabel = m[2].trim();
+          const label =
+            id === 'gemini-3.8-flash-low' && !rawLabel.includes('推荐')
+              ? rawLabel.replace(/\(Low\)$/i, '(Low · 极速推荐)')
+              : rawLabel;
+          if (!seen.has(id)) {
+            seen.add(id);
+            parsed.push({ id, label, group: inferAgyGroup(id, rawLabel) });
           }
         }
-        if (parsed.length > 1) {
-          cachedAgyModels = parsed;
-        }
       }
-      resolve(cachedAgyModels || DEFAULT_MODELS_BY_ENGINE.agy);
-    });
-
-    child.on('error', () => {
-      clearTimeout(timer);
-      resolve(cachedAgyModels || DEFAULT_MODELS_BY_ENGINE.agy);
-    });
-  }).finally(() => {
-    agyModelsInFlight = null;
+      if (parsed.length > 1) {
+        saveModelsDiskCache('agy', parsed, agyInfo.binPath, binMeta);
+      }
+    }
+    return cachedModelsByEngine.agy || DEFAULT_MODELS_BY_ENGINE.agy;
+  })().finally(() => {
+    modelsInFlightByEngine.agy = null;
   });
 
-  return agyModelsInFlight;
+  return modelsInFlightByEngine.agy;
 }
 
 function fetchCursorModels(forceRefresh = false) {
-  if (cachedCursorModels && !forceRefresh) {
-    return Promise.resolve(cachedCursorModels);
-  }
-  if (cursorModelsInFlight) {
-    return cursorModelsInFlight;
-  }
-  const now = Date.now();
-  if (!forceRefresh && !cachedCursorModels && now - lastCursorModelsAttemptAt < 30_000) {
-    return Promise.resolve(DEFAULT_MODELS_BY_ENGINE.cursor);
-  }
   const cursorInfo = getEngineInfo('cursor');
   if (!cursorInfo || cursorInfo.id !== 'cursor' || !cursorInfo.available || !cursorInfo.binPath) {
     return Promise.resolve(DEFAULT_MODELS_BY_ENGINE.cursor);
   }
-  lastCursorModelsAttemptAt = now;
+  const binMeta = getBinaryMeta(cursorInfo.binPath, 'cursor');
+  if (cachedModelsByEngine.cursor && !forceRefresh && !isEngineModelsCacheStale('cursor', binMeta)) {
+    return Promise.resolve(cachedModelsByEngine.cursor);
+  }
+  if (modelsInFlightByEngine.cursor) {
+    return modelsInFlightByEngine.cursor;
+  }
+  const now = Date.now();
+  if (!forceRefresh && now - lastModelsAttemptAtByEngine.cursor < MODEL_RETRY_COOLDOWN_MS) {
+    return Promise.resolve(cachedModelsByEngine.cursor || DEFAULT_MODELS_BY_ENGINE.cursor);
+  }
+  lastModelsAttemptAtByEngine.cursor = now;
 
-  cursorModelsInFlight = new Promise((resolve) => {
-    const child = spawn(cursorInfo.binPath, ['--list-models'], {
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        PATH: buildEnhancedPath(),
-      },
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+  modelsInFlightByEngine.cursor = (async () => {
+    const { code, stdout } = await runModelListCliCommand(cursorInfo.binPath, ['--list-models']);
+    if (code === 0 && stdout) {
+      const clean = stripTerminalAndZeroWidth(stdout).replace(/\r/g, '\n');
+      const parsed = [{ id: '', label: '默认模型 (Cursor Auto · 智能路由)', group: '默认' }];
+      const seen = new Set(['', 'auto']);
+      for (const rawLine of clean.split('\n')) {
+        const line = rawLine.trim();
+        if (!line || /^Available models$/i.test(line) || /^Tip:/i.test(line)) continue;
+        const m = line.match(/^([a-z0-9._-]+)\s+-\s+(.+)$/i);
+        if (m) {
+          const id = m[1].trim();
+          const label = m[2]
+            .replace(/\s*\((?:default|current)\)\s*$/i, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+          if (!seen.has(id) && label) {
+            seen.add(id);
+            parsed.push({ id, label, group: inferCursorGroup(id) });
+          }
+        }
+      }
+      if (parsed.length > 1) {
+        saveModelsDiskCache('cursor', parsed, cursorInfo.binPath, binMeta);
+      }
+    }
+    return cachedModelsByEngine.cursor || DEFAULT_MODELS_BY_ENGINE.cursor;
+  })().finally(() => {
+    modelsInFlightByEngine.cursor = null;
+  });
 
-    let out = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      resolve(cachedCursorModels || DEFAULT_MODELS_BY_ENGINE.cursor);
-    }, 6000);
+  return modelsInFlightByEngine.cursor;
+}
 
-    child.stdout.on('data', (chunk) => {
-      out += chunk.toString('utf8');
-    });
+function parseModelVersionScore(id) {
+  const nums = (String(id || '').match(/\d+/g) || []).map((n) => parseInt(n, 10));
+  if (nums.length === 0) return 0;
+  const major = nums[0] || 0;
+  const minor = nums[1] !== undefined && nums[1] < 100 ? nums[1] : 0;
+  const patch = nums[2] !== undefined && nums[2] < 100 ? nums[2] : 0;
+  return major * 10000 + minor * 100 + patch;
+}
 
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        const clean = stripTerminalAndZeroWidth(out).replace(/\r/g, '\n');
-        const parsed = [{ id: '', label: '默认模型 (Cursor Auto · 智能路由)', group: '默认' }];
-        const seen = new Set(['', 'auto']);
-        for (const rawLine of clean.split('\n')) {
-          const line = rawLine.trim();
-          if (!line || /^Available models$/i.test(line) || /^Tip:/i.test(line)) continue;
-          const m = line.match(/^([a-z0-9._-]+)\s+-\s+(.+)$/i);
-          if (m) {
-            const id = m[1].trim();
-            const label = m[2]
-              .replace(/\s*\((?:default|current)\)\s*$/i, '')
-              .replace(/\s{2,}/g, ' ')
-              .trim();
-            if (!seen.has(id) && label) {
-              seen.add(id);
-              parsed.push({ id, label, group: inferCursorGroup(id) });
+function fetchClaudeModels(forceRefresh = false) {
+  const claudeInfo = getEngineInfo('claude');
+  if (!claudeInfo || claudeInfo.id !== 'claude' || !claudeInfo.available || !claudeInfo.binPath) {
+    return Promise.resolve(DEFAULT_MODELS_BY_ENGINE.claude);
+  }
+  const binMeta = getBinaryMeta(claudeInfo.binPath, 'claude');
+  if (cachedModelsByEngine.claude && !forceRefresh && !isEngineModelsCacheStale('claude', binMeta)) {
+    return Promise.resolve(cachedModelsByEngine.claude);
+  }
+  if (modelsInFlightByEngine.claude) {
+    return modelsInFlightByEngine.claude;
+  }
+  const now = Date.now();
+  if (!forceRefresh && now - lastModelsAttemptAtByEngine.claude < MODEL_RETRY_COOLDOWN_MS) {
+    return Promise.resolve(cachedModelsByEngine.claude || DEFAULT_MODELS_BY_ENGINE.claude);
+  }
+  lastModelsAttemptAtByEngine.claude = now;
+
+  modelsInFlightByEngine.claude = (async () => {
+    try {
+      const realPath = binMeta.realPath || realpathSync(claudeInfo.binPath);
+      const fh = await fs.open(realPath, 'r');
+      const foundModels = new Map();
+      const aliasPointers = {};
+      try {
+        const stat = await fh.stat();
+        const chunkSize = 4 * 1024 * 1024;
+        const overlap = 512;
+        const buf = Buffer.allocUnsafe(chunkSize);
+        let pos = 0;
+        let tail = '';
+
+        while (pos < stat.size) {
+          const { bytesRead } = await fh.read(buf, 0, chunkSize, pos);
+          if (bytesRead <= 0) break;
+          const text = tail + buf.subarray(0, bytesRead).toString('utf8');
+          const entryRe = /\{id:"(claude-[a-z0-9.-]+)",family:"([a-z0-9-]+)",display_name:"([^"]+)"/g;
+          let m;
+          while ((m = entryRe.exec(text)) !== null) {
+            foundModels.set(m[1], { id: m[1], family: m[2], displayName: m[3] });
+          }
+          const aliasRe = /([A-Z]+)_ID:"(claude-[a-z0-9.-]+)",\1_NAME:"([^"]+)"/g;
+          while ((m = aliasRe.exec(text)) !== null) {
+            aliasPointers[m[1].toLowerCase()] = { id: m[2], name: m[3] };
+          }
+          tail = text.slice(-overlap);
+          pos += bytesRead;
+          await new Promise((r) => setImmediate(r));
+        }
+      } finally {
+        await fh.close();
+      }
+
+      if (foundModels.size > 0) {
+        const parsed = [{ id: '', label: '默认模型 (Claude Default)', group: '默认' }];
+        const seen = new Set(['']);
+        const hasFable =
+          Boolean(aliasPointers.fable) ||
+          [...foundModels.values()].some((m) => m.family === 'fable');
+
+        const aliasSpecs = [
+          { id: 'sonnet', title: 'Claude Sonnet', hint: '极速推荐', enabled: true },
+          { id: 'opus', title: 'Claude Opus', hint: '深度推理', enabled: true },
+          { id: 'fable', title: 'Claude Fable', hint: '1M 上下文', enabled: hasFable },
+          { id: 'haiku', title: 'Claude Haiku', hint: '轻量秒回', enabled: true },
+        ];
+        for (const a of aliasSpecs) {
+          if (!a.enabled) continue;
+          const targetName = aliasPointers[a.id]?.name;
+          const suffix = targetName
+            ? ` (Latest → ${targetName.replace(/^Claude\s+/i, '')}${a.hint ? ` · ${a.hint}` : ''})`
+            : ` (Latest${a.hint ? ` · ${a.hint}` : ''})`;
+          seen.add(a.id);
+          parsed.push({
+            id: a.id,
+            label: `${a.title}${suffix}`,
+            group: 'Claude 官方别名',
+          });
+        }
+
+        const publicFamilies = ['sonnet', 'opus', 'fable', 'haiku'];
+        const familyGroupLabels = {
+          sonnet: 'Claude Sonnet',
+          opus: 'Claude Opus',
+          fable: 'Claude Fable',
+          haiku: 'Claude Haiku',
+        };
+        const grouped = new Map();
+        for (const item of foundModels.values()) {
+          const fam = item.family || '';
+          if (!publicFamilies.includes(fam)) continue;
+          if (!grouped.has(fam)) grouped.set(fam, []);
+          grouped.get(fam).push(item);
+        }
+
+        for (const fam of publicFamilies) {
+          if (!grouped.has(fam)) continue;
+          const items = grouped
+            .get(fam)
+            .slice()
+            .sort((a, b) => parseModelVersionScore(b.id) - parseModelVersionScore(a.id));
+          const groupName = familyGroupLabels[fam];
+          for (const item of items) {
+            if (seen.has(item.id)) continue;
+            seen.add(item.id);
+            const label = /^Claude\s+/i.test(item.displayName)
+              ? item.displayName
+              : `Claude ${item.displayName}`;
+            parsed.push({ id: item.id, label, group: groupName });
+          }
+        }
+
+        // Also include user's custom configured model from ~/.claude/settings.json if any
+        if (HOME_DIR) {
+          try {
+            const settingsPath = path.join(HOME_DIR, '.claude', 'settings.json');
+            if (existsSync(settingsPath)) {
+              const rawSettings = await fs.readFile(settingsPath, 'utf8');
+              const settings = JSON.parse(rawSettings);
+              const customCandidates = [
+                typeof settings?.model === 'string' ? settings.model.trim() : '',
+                ...(Array.isArray(settings?.availableModels) ? settings.availableModels : []),
+              ];
+              for (const cand of customCandidates) {
+                const safeId = sanitizeCliArgToken(String(cand || ''));
+                if (safeId && !seen.has(safeId)) {
+                  seen.add(safeId);
+                  parsed.push({ id: safeId, label: `${safeId} (自定义配置)`, group: '自定义模型' });
+                }
+              }
+            }
+          } catch {
+            // ignore settings parse error
+          }
+        }
+
+        if (parsed.length > 1) {
+          saveModelsDiskCache('claude', parsed, claudeInfo.binPath, binMeta);
+        }
+      }
+    } catch {
+      // ignore binary scan failure and fallback
+    }
+    return cachedModelsByEngine.claude || DEFAULT_MODELS_BY_ENGINE.claude;
+  })().finally(() => {
+    modelsInFlightByEngine.claude = null;
+  });
+
+  return modelsInFlightByEngine.claude;
+}
+
+function formatGeminiModelLabel(id, displayName = '', isPreview = false) {
+  if (displayName && displayName !== id) return displayName;
+  if (id === 'auto') return 'Auto (智能路由)';
+  if (id === 'gemini-3.5-flash') return 'Gemini 3.5 Flash (极速推荐)';
+  const pretty = id
+    .replace(/^gemini-/i, 'Gemini ')
+    .replace(/^gemma-/i, 'Gemma ')
+    .replace(/-preview$/i, '')
+    .split('-')
+    .map((part) => {
+      if (/^\d/.test(part)) return part.toUpperCase();
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
+  return isPreview || /-preview$/i.test(id) ? `${pretty} (Preview)` : pretty;
+}
+
+function inferGeminiGroup(id, family = '', tier = '') {
+  if (id === '' || id === 'auto' || tier === 'auto' || id.startsWith('auto-')) return '默认';
+  if (family === 'gemini-3' || /^gemini-3(?:\.|-)/i.test(id)) return 'Gemini 3 系列';
+  if (family === 'gemini-2.5' || /^gemini-2\.5/i.test(id)) return 'Gemini 2.5 系列';
+  if (family?.startsWith('gemma') || /^gemma-/i.test(id)) return 'Gemma 系列';
+  return 'Gemini 其他模型';
+}
+
+function extractBalancedBraceBlock(str, openBraceIdx, maxLen = 32000) {
+  if (openBraceIdx < 0 || str[openBraceIdx] !== '{') return '';
+  let depth = 0;
+  const endLimit = Math.min(str.length, openBraceIdx + maxLen);
+  for (let i = openBraceIdx; i < endLimit; i++) {
+    const ch = str[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return str.slice(openBraceIdx, i + 1);
+      }
+    }
+  }
+  return str.slice(openBraceIdx, endLimit);
+}
+
+function fetchGeminiModels(forceRefresh = false) {
+  const geminiInfo = getEngineInfo('gemini');
+  if (!geminiInfo || geminiInfo.id !== 'gemini' || !geminiInfo.available || !geminiInfo.binPath) {
+    return Promise.resolve(DEFAULT_MODELS_BY_ENGINE.gemini);
+  }
+  const binMeta = getBinaryMeta(geminiInfo.binPath, 'gemini');
+  if (cachedModelsByEngine.gemini && !forceRefresh && !isEngineModelsCacheStale('gemini', binMeta)) {
+    return Promise.resolve(cachedModelsByEngine.gemini);
+  }
+  if (modelsInFlightByEngine.gemini) {
+    return modelsInFlightByEngine.gemini;
+  }
+  const now = Date.now();
+  if (!forceRefresh && now - lastModelsAttemptAtByEngine.gemini < MODEL_RETRY_COOLDOWN_MS) {
+    return Promise.resolve(cachedModelsByEngine.gemini || DEFAULT_MODELS_BY_ENGINE.gemini);
+  }
+  lastModelsAttemptAtByEngine.gemini = now;
+
+  modelsInFlightByEngine.gemini = (async () => {
+    try {
+      const realPath = binMeta.realPath || realpathSync(geminiInfo.binPath);
+      if (/\.(?:m?js|cjs)$/i.test(realPath)) {
+        const bundleDir = path.dirname(realPath);
+        const entries = (await fs.readdir(bundleDir)).sort();
+        const jsFiles = entries.filter((f) => /^(?:gemini|chunk-|core-|index)\b.*\.(?:m?js|cjs)$/i.test(f));
+        const discovered = new Map();
+
+        for (const fileName of jsFiles) {
+          const fullPath = path.join(bundleDir, fileName);
+          const stat = await fs.stat(fullPath).catch(() => null);
+          if (!stat || !stat.isFile() || stat.size > 25 * 1024 * 1024) continue;
+          const content = await fs.readFile(fullPath, 'utf8');
+          let searchFrom = 0;
+          while (true) {
+            const defIdx = content.indexOf('modelDefinitions:', searchFrom);
+            if (defIdx === -1) break;
+            searchFrom = defIdx + 17;
+            const braceIdx = content.indexOf('{', defIdx + 17);
+            if (braceIdx === -1 || braceIdx - defIdx > 40) continue;
+            const block = extractBalancedBraceBlock(content, braceIdx, 24000);
+            if (!block) continue;
+            const entryRe = /["']?([a-z0-9.-]+)["']?\s*:\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/gi;
+            let m;
+            while ((m = entryRe.exec(block)) !== null) {
+              const id = m[1].trim();
+              const body = m[2];
+              if (!/isVisible:\s*true/.test(body)) continue;
+              const tierM = body.match(/tier:\s*["']([^"']+)["']/);
+              const familyM = body.match(/family:\s*["']([^"']+)["']/);
+              const displayM = body.match(/displayName:\s*["']([^"']+)["']/);
+              const isPreview = /isPreview:\s*true/.test(body);
+              if (!discovered.has(id)) {
+                discovered.set(id, {
+                  id,
+                  tier: tierM?.[1] || '',
+                  family: familyM?.[1] || '',
+                  displayName: displayM?.[1] || '',
+                  isPreview,
+                });
+              }
             }
           }
         }
-        if (parsed.length > 1) {
-          cachedCursorModels = parsed;
+
+        if (discovered.size > 0) {
+          const parsed = [{ id: '', label: '默认模型 (Gemini Default)', group: '默认' }];
+          const seen = new Set(['']);
+
+          if (discovered.has('auto')) {
+            seen.add('auto');
+            parsed.push({
+              id: 'auto',
+              label: 'Auto (智能路由 · Gemini 3)',
+              group: '默认',
+            });
+          }
+
+          const preferredOrder = [
+            'gemini-3.5-flash',
+            'gemini-3.1-pro-preview',
+            'gemini-3-pro-preview',
+            'gemini-3-flash-preview',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash',
+            'gemini-2.5-pro',
+            'gemini-2.5-flash-lite',
+          ];
+          const allItems = [
+            ...preferredOrder.filter((k) => discovered.has(k)).map((k) => discovered.get(k)),
+            ...[...discovered.values()].filter((item) => !preferredOrder.includes(item.id) && item.id !== 'auto'),
+          ];
+
+          for (const item of allItems) {
+            if (!item || seen.has(item.id)) continue;
+            seen.add(item.id);
+            parsed.push({
+              id: item.id,
+              label: formatGeminiModelLabel(item.id, item.displayName, item.isPreview),
+              group: inferGeminiGroup(item.id, item.family, item.tier),
+            });
+          }
+
+          if (HOME_DIR) {
+            try {
+              const settingsPath = path.join(HOME_DIR, '.gemini', 'settings.json');
+              if (existsSync(settingsPath)) {
+                const rawSettings = await fs.readFile(settingsPath, 'utf8');
+                const settings = JSON.parse(rawSettings);
+                const customModel =
+                  typeof settings?.model === 'string'
+                    ? settings.model.trim()
+                    : typeof settings?.model?.name === 'string'
+                      ? settings.model.name.trim()
+                      : '';
+                const safeId = sanitizeCliArgToken(customModel);
+                if (safeId && !seen.has(safeId)) {
+                  seen.add(safeId);
+                  parsed.push({ id: safeId, label: `${safeId} (自定义配置)`, group: '自定义模型' });
+                }
+              }
+            } catch {
+              // ignore settings parse error
+            }
+          }
+
+          if (parsed.length > 1) {
+            saveModelsDiskCache('gemini', parsed, geminiInfo.binPath, binMeta);
+          }
         }
       }
-      resolve(cachedCursorModels || DEFAULT_MODELS_BY_ENGINE.cursor);
-    });
-
-    child.on('error', () => {
-      clearTimeout(timer);
-      resolve(cachedCursorModels || DEFAULT_MODELS_BY_ENGINE.cursor);
-    });
-  }).finally(() => {
-    cursorModelsInFlight = null;
+    } catch {
+      // ignore bundle scan failure and fallback
+    }
+    return cachedModelsByEngine.gemini || DEFAULT_MODELS_BY_ENGINE.gemini;
+  })().finally(() => {
+    modelsInFlightByEngine.gemini = null;
   });
 
-  return cursorModelsInFlight;
+  return modelsInFlightByEngine.gemini;
 }
 
-async function getModelsForEngine(engineId, forceRefresh = false) {
-  if (engineId === 'agy') {
+function fetchModelsForEngineById(engineId, forceRefresh = false) {
+  if (engineId === 'agy') return fetchAgyModels(forceRefresh);
+  if (engineId === 'cursor') return fetchCursorModels(forceRefresh);
+  if (engineId === 'claude') return fetchClaudeModels(forceRefresh);
+  if (engineId === 'gemini') return fetchGeminiModels(forceRefresh);
+  return Promise.resolve(
+    (Object.hasOwn(DEFAULT_MODELS_BY_ENGINE, engineId) && DEFAULT_MODELS_BY_ENGINE[engineId]) ||
+      DEFAULT_MODELS_BY_ENGINE.claude
+  );
+}
+
+async function getModelsForEngine(engineId, { forceRefresh = false, waitForInFlight = false } = {}) {
+  if (isDynamicModelEngine(engineId)) {
     if (forceRefresh) {
-      return await fetchAgyModels(true);
+      return await fetchModelsForEngineById(engineId, true);
     }
-    if (!cachedAgyModels) {
-      fetchAgyModels(false).catch(() => {});
+    if (waitForInFlight) {
+      if (modelsInFlightByEngine[engineId]) {
+        return await modelsInFlightByEngine[engineId];
+      }
+      if (!cachedModelsByEngine[engineId] || isEngineModelsCacheStale(engineId)) {
+        return await fetchModelsForEngineById(engineId, false);
+      }
+      return cachedModelsByEngine[engineId] || DEFAULT_MODELS_BY_ENGINE[engineId];
     }
-    return cachedAgyModels || DEFAULT_MODELS_BY_ENGINE.agy;
+    if (!cachedModelsByEngine[engineId] || isEngineModelsCacheStale(engineId)) {
+      fetchModelsForEngineById(engineId, false).catch(() => {});
+    }
+    return cachedModelsByEngine[engineId] || DEFAULT_MODELS_BY_ENGINE[engineId];
   }
-  if (engineId === 'cursor') {
-    if (forceRefresh) {
-      return await fetchCursorModels(true);
+  return (
+    (Object.hasOwn(DEFAULT_MODELS_BY_ENGINE, engineId) && DEFAULT_MODELS_BY_ENGINE[engineId]) ||
+    DEFAULT_MODELS_BY_ENGINE.claude
+  );
+}
+
+async function warmUpInstalledEngineModels() {
+  loadModelsDiskCacheSync();
+  for (const eng of detectedEngines) {
+    if (eng.available && isDynamicModelEngine(eng.id)) {
+      if (!cachedModelsByEngine[eng.id] || isEngineModelsCacheStale(eng.id)) {
+        try {
+          await fetchModelsForEngineById(eng.id, false);
+        } catch {
+          // ignore warmup error
+        }
+      }
     }
-    if (!cachedCursorModels) {
-      fetchCursorModels(false).catch(() => {});
-    }
-    return cachedCursorModels || DEFAULT_MODELS_BY_ENGINE.cursor;
   }
-  return DEFAULT_MODELS_BY_ENGINE[engineId] || DEFAULT_MODELS_BY_ENGINE.claude;
 }
 
 const ALLOWED_EXTENSION_IDS = new Set(
@@ -3279,10 +3878,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/models') {
       const force = url.searchParams.get('refresh') === '1';
-      const engineId = url.searchParams.get('engine') || getDefaultEngineId();
-      const models = await getModelsForEngine(engineId, force);
+      const wait = url.searchParams.get('wait') === '1';
+      const rawEngine = url.searchParams.get('engine') || getDefaultEngineId();
+      const engineId = ENGINE_SPECS.some((s) => s.id === rawEngine) ? rawEngine : getDefaultEngineId();
+      const models = await getModelsForEngine(engineId, { forceRefresh: force, waitForInFlight: wait });
+      const refreshing = isDynamicModelEngine(engineId) && Boolean(modelsInFlightByEngine[engineId]);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ engine: engineId, models }));
+      res.end(JSON.stringify({ engine: engineId, models, refreshing }));
       return;
     }
 
@@ -3991,6 +4593,7 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, HOST, () => {
+  warmUpInstalledEngineModels().catch(() => {});
   const availableList = detectedEngines
     .filter((e) => e.available)
     .map((e) => `${e.id}(${e.binPath})`)
